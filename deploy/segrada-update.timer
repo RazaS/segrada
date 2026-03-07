@@ -1,0 +1,10 @@
+[Unit]
+Description=Check Segrada Git updates regularly
+
+[Timer]
+OnBootSec=3min
+OnUnitActiveSec=5min
+Unit=segrada-update.service
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,9 @@
+[Unit]
+Description=Update Segrada from Git
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=SEGRADA_BRANCH=main
+ExecStart=/opt/segrada/app/deploy/update_app.sh
