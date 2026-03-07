@@ -16,4 +16,12 @@ fi
 
 git reset --hard "origin/$BRANCH"
 "$VENV_DIR/bin/pip" install -r requirements.txt
+install -m 644 deploy/segrada.service /etc/systemd/system/segrada.service
+install -m 644 deploy/segrada-update.service /etc/systemd/system/segrada-update.service
+install -m 644 deploy/segrada-update.timer /etc/systemd/system/segrada-update.timer
+install -m 644 deploy/nginx-segrada.conf /etc/nginx/sites-available/segrada
+ln -sf /etc/nginx/sites-available/segrada /etc/nginx/sites-enabled/segrada
+systemctl daemon-reload
+nginx -t
+systemctl reload nginx
 systemctl restart segrada.service

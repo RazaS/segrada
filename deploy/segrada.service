@@ -6,8 +6,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/segrada/app
-Environment=SECRET_KEY=replace-me
-Environment=SESSION_COOKIE_SECURE=0
+EnvironmentFile=/etc/segrada.env
 ExecStart=/opt/segrada/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8000 wsgi:app
 Restart=always
 RestartSec=3
