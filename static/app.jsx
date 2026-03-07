@@ -35,7 +35,6 @@ function formatTorontoTime(date) {
         timeZone: TORONTO_TIMEZONE,
         hour: "numeric",
         minute: "2-digit",
-        second: "2-digit",
     }).format(date);
 }
 
