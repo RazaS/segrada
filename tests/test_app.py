@@ -170,6 +170,41 @@ class PetTimelineAppTests(unittest.TestCase):
         self.assertEqual(authenticated_image_response.status_code, 200)
         authenticated_image_response.close()
 
+    def test_large_upload_returns_json_error(self):
+        limited_app = create_app(
+            {
+                "TESTING": True,
+                "SECRET_KEY": "test-secret",
+                "DATABASE": str(Path(self.temp_dir.name) / "limit-test.db"),
+                "UPLOAD_FOLDER": str(Path(self.temp_dir.name) / "limit-uploads"),
+                "MAX_CONTENT_LENGTH": 1024,
+            }
+        )
+        client = limited_app.test_client()
+        client.post(
+            "/api/login",
+            json={"username": "victoria", "password": "sashakitty"},
+        )
+
+        source_image = io.BytesIO()
+        Image.new("RGB", (1000, 1000), color=(200, 120, 120)).save(
+            source_image,
+            format="JPEG",
+            quality=95,
+        )
+        source_image.seek(0)
+
+        response = client.post(
+            "/api/posts",
+            data={
+                "content": "too big",
+                "photo": (source_image, "too-big.jpg"),
+            },
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(response.status_code, 413)
+        self.assertIn("under 1 KB", response.get_json()["error"])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -25,6 +25,7 @@ from flask import (
 )
 from PIL import Image, ImageOps
 from werkzeug.datastructures import FileStorage
+from werkzeug.exceptions import RequestEntityTooLarge
 from werkzeug.utils import secure_filename
 
 USERS = {
@@ -83,6 +84,20 @@ TORONTO_TZ = ZoneInfo("America/Toronto")
 
 def now_utc_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat()
+
+
+def format_upload_limit(limit_bytes: int) -> str:
+    if limit_bytes >= 1024 * 1024:
+        megabytes = limit_bytes / (1024 * 1024)
+        if megabytes.is_integer():
+            return f"{int(megabytes)} MB"
+        return f"{megabytes:.1f} MB"
+    if limit_bytes >= 1024:
+        kilobytes = limit_bytes / 1024
+        if kilobytes.is_integer():
+            return f"{int(kilobytes)} KB"
+        return f"{kilobytes:.1f} KB"
+    return f"{limit_bytes} bytes"
 
 
 def public_user(username: str | None) -> dict | None:
@@ -349,7 +364,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         MAX_IMAGE_DIMENSION=1600,
         JPEG_QUALITY=82,
         WEBP_QUALITY=82,
-        MAX_CONTENT_LENGTH=10 * 1024 * 1024,
+        MAX_CONTENT_LENGTH=25 * 1024 * 1024,
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
@@ -369,6 +384,18 @@ def create_app(test_config: dict | None = None) -> Flask:
     @app.get("/")
     def index():
         return render_template("index.html")
+
+    @app.errorhandler(RequestEntityTooLarge)
+    def handle_too_large(_: RequestEntityTooLarge):
+        limit_label = format_upload_limit(current_app.config["MAX_CONTENT_LENGTH"])
+        return (
+            jsonify(
+                {
+                    "error": f"Photo upload is too large. Keep it under {limit_label}."
+                }
+            ),
+            413,
+        )
 
     @app.get("/uploads/<path:filename>")
     @login_required

@@ -13,6 +13,7 @@ A small Flask + React app for logging pet updates in a shared household timeline
   - right: Toronto time and current Toronto weather
 - Left and right panels can be collapsed in desktop and mobile layouts
 - Photo uploads are resized automatically before storage
+- Photo uploads up to 25 MB are accepted, then resized/compressed on save
 - Data is shared across logged-in users connecting to the same running server
 - Stored posts and uploaded photos require login to access
 - Posts editable and deletable only by the user who created them

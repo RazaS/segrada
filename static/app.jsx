@@ -17,7 +17,11 @@ async function apiFetch(url, options = {}) {
     }
 
     if (!response.ok) {
-        const message = payload?.error || "Request failed.";
+        const message =
+            payload?.error ||
+            (response.status === 413
+                ? "Photo upload is too large. Keep it under 25 MB."
+                : "Request failed.");
         const error = new Error(message);
         error.status = response.status;
         throw error;
