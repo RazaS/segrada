@@ -16,7 +16,6 @@ fi
 
 git reset --hard "origin/$BRANCH"
 "$VENV_DIR/bin/pip" install -r requirements.txt
-install -m 755 deploy/update_app.sh /opt/segrada/app/deploy/update_app.sh
 install -m 644 deploy/segrada.service /etc/systemd/system/segrada.service
 install -m 644 deploy/segrada-update.service /etc/systemd/system/segrada-update.service
 install -m 644 deploy/segrada-update.timer /etc/systemd/system/segrada-update.timer
