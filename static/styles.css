@@ -100,7 +100,14 @@ table {
     padding: 0.16rem 0.48rem;
     border: 1px solid transparent;
     border-radius: 999px;
+    color: var(--accent-deep);
+    text-shadow: none;
     transition: background 480ms ease, border-color 480ms ease;
+}
+
+:root[data-theme="dark"] .body-part-count {
+    color: #ffd5b7;
+    text-shadow: 0 1px 0 rgba(0, 0, 0, 0.3);
 }
 
 .lede,

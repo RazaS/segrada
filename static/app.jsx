@@ -557,6 +557,8 @@ function WorkoutTable({
     onDeleteEntry,
     deleteBusyId = null,
 }) {
+    const shouldShowDelete = showDelete || editable;
+
     return (
         <div className="table-wrap">
             <table className="workout-table">
@@ -568,7 +570,7 @@ function WorkoutTable({
                         <th>Sets</th>
                         <th>Reps</th>
                         <th>Weight</th>
-                        {showDelete ? <th /> : null}
+                        {shouldShowDelete ? <th /> : null}
                     </tr>
                 </thead>
                 <tbody>
@@ -626,7 +628,7 @@ function WorkoutTable({
                                     entry.weight
                                 )}
                             </td>
-                            {showDelete ? (
+                            {shouldShowDelete ? (
                                 <td className="table-action-cell">
                                     <button
                                         className="secondary-button compact-button table-delete-button"
@@ -646,7 +648,15 @@ function WorkoutTable({
     );
 }
 
-function WorkoutSessionCard({ session, onSave, onDelete, deleteBusy = false, allowEdit = true }) {
+function WorkoutSessionCard({
+    session,
+    onSave,
+    onDelete,
+    onDeleteEntry,
+    deleteBusy = false,
+    deleteEntryBusyId = null,
+    allowEdit = true,
+}) {
     const [expanded, setExpanded] = useState(false);
     const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -734,20 +744,31 @@ function WorkoutSessionCard({ session, onSave, onDelete, deleteBusy = false, all
                     entries={editing ? draftEntries : session.entries}
                     editable={editing}
                     onChangeEntry={handleChangeEntry}
+                    onDeleteEntry={onDeleteEntry}
+                    deleteBusyId={deleteEntryBusyId}
                 />
             ) : null}
         </article>
     );
 }
 
-function TimelineEvent({ item, onSaveSession, onDeleteSession, deleteBusyId }) {
+function TimelineEvent({
+    item,
+    onSaveSession,
+    onDeleteSession,
+    onDeleteEntry,
+    deleteBusyId,
+    deleteEntryBusyId,
+}) {
     if (item.item_type === "workout_session") {
         return (
             <WorkoutSessionCard
                 session={item}
                 onSave={onSaveSession}
                 onDelete={onDeleteSession}
+                onDeleteEntry={onDeleteEntry}
                 deleteBusy={deleteBusyId === item.id}
+                deleteEntryBusyId={deleteEntryBusyId}
             />
         );
     }
@@ -794,7 +815,9 @@ function TimelinePanel({
     onRefresh,
     onSaveSession,
     onDeleteSession,
+    onDeleteEntry,
     deleteBusyId,
+    deleteEntryBusyId,
     onShowMore,
     error,
 }) {
@@ -848,7 +871,9 @@ function TimelinePanel({
                         item={item}
                         onSaveSession={onSaveSession}
                         onDeleteSession={onDeleteSession}
+                        onDeleteEntry={onDeleteEntry}
                         deleteBusyId={deleteBusyId}
+                        deleteEntryBusyId={deleteEntryBusyId}
                     />
                 ))}
 
@@ -1790,7 +1815,9 @@ function App() {
                     onRefresh={() => loadDashboard(calendarMonthRef.current)}
                     onSaveSession={saveWorkoutSession}
                     onDeleteSession={deleteWorkoutSession}
+                    onDeleteEntry={deleteQueueEntry}
                     deleteBusyId={deleteSessionBusyId}
+                    deleteEntryBusyId={deleteEntryBusyId}
                     onShowMore={() => setVisibleWorkoutSessions((current) => current + 10)}
                     error={actionError}
                 />
