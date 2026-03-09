@@ -186,18 +186,48 @@ def serialize_body_part(row: sqlite3.Row) -> dict:
         "id": row["id"],
         "label": row["label"],
         "sort_order": row["sort_order"],
+        "days_since_used": row["days_since_used"] if "days_since_used" in row.keys() else None,
     }
 
 
 def list_body_parts() -> list[dict]:
-    rows = get_db().execute(
+    db = get_db()
+    rows = db.execute(
         """
         SELECT id, label, sort_order
         FROM body_parts
         ORDER BY sort_order ASC, lower(label) ASC
         """
     ).fetchall()
-    return [serialize_body_part(row) for row in rows]
+    latest_by_part: dict[str, datetime] = {}
+    workout_rows = db.execute(
+        """
+        SELECT payload, created_at
+        FROM timeline_events
+        WHERE event_type = 'workout'
+        ORDER BY datetime(created_at) DESC, id DESC
+        """
+    ).fetchall()
+    for workout_row in workout_rows:
+        created_at = datetime.fromisoformat(workout_row["created_at"]).astimezone(TORONTO_TZ)
+        payload = json.loads(workout_row["payload"])
+        for entry in payload.get("entries", []):
+            body_part = entry.get("body_part")
+            if body_part and body_part not in latest_by_part:
+                latest_by_part[body_part] = created_at
+
+    today = toronto_now().date()
+    return [
+        {
+            "id": row["id"],
+            "label": row["label"],
+            "sort_order": row["sort_order"],
+            "days_since_used": None
+            if row["id"] not in latest_by_part
+            else (today - latest_by_part[row["id"]].date()).days,
+        }
+        for row in rows
+    ]
 
 
 def body_part_label_map() -> dict[str, str]:
@@ -287,6 +317,10 @@ def init_db() -> None:
         """
     )
     db.commit()
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(exercises)").fetchall()}
+    if "max_weight" not in columns:
+        db.execute("ALTER TABLE exercises ADD COLUMN max_weight INTEGER NOT NULL DEFAULT 0")
+        db.commit()
     seed_body_parts()
     seed_exercises()
 
@@ -301,6 +335,7 @@ def serialize_exercise(row: sqlite3.Row) -> dict:
         "is_custom": bool(row["is_custom"]),
         "is_active": bool(row["is_active"]),
         "last_weight": row["last_weight"],
+        "max_weight": row["max_weight"],
         "sort_order": row["sort_order"],
     }
 
@@ -316,6 +351,7 @@ def list_exercises() -> list[dict]:
             exercises.is_custom,
             exercises.is_active,
             exercises.last_weight,
+            exercises.max_weight,
             exercises.sort_order
         FROM exercises
         LEFT JOIN body_parts ON body_parts.id = exercises.body_part
@@ -339,6 +375,7 @@ def get_exercise(exercise_id: int) -> sqlite3.Row | None:
             exercises.is_custom,
             exercises.is_active,
             exercises.last_weight,
+            exercises.max_weight,
             exercises.sort_order
         FROM exercises
         LEFT JOIN body_parts ON body_parts.id = exercises.body_part
@@ -374,11 +411,13 @@ def serialize_event(row: sqlite3.Row, labels: dict[str, str]) -> dict:
                     "sets": entry["sets"],
                     "reps": entry["reps"],
                     "weight": entry["weight"],
+                    "is_pr": bool(entry.get("is_pr")),
                 }
             )
         event["exercise_count"] = len(entries)
         event["entries"] = entries
         event["total_volume"] = total_volume
+        event["has_pr"] = any(entry["is_pr"] for entry in entries)
     elif row["event_type"] == "meal":
         event["high_protein"] = bool(payload.get("high_protein"))
 
@@ -624,7 +663,8 @@ def create_app(test_config: dict | None = None) -> Flask:
                     exercises.name,
                     exercises.body_part,
                     body_parts.label AS body_part_label,
-                    exercises.last_weight
+                    exercises.last_weight,
+                    exercises.max_weight
                 FROM exercises
                 LEFT JOIN body_parts ON body_parts.id = exercises.body_part
                 WHERE exercises.id = ?
@@ -644,6 +684,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                     "sets": sets,
                     "reps": reps,
                     "weight": weight,
+                    "is_pr": weight > exercise["max_weight"],
                 }
             )
 
@@ -652,10 +693,10 @@ def create_app(test_config: dict | None = None) -> Flask:
             db.execute(
                 """
                 UPDATE exercises
-                SET last_weight = ?, updated_at = ?
+                SET last_weight = ?, max_weight = MAX(max_weight, ?), updated_at = ?
                 WHERE id = ?
                 """,
-                (entry["weight"], timestamp, entry["exercise_id"]),
+                (entry["weight"], entry["weight"], timestamp, entry["exercise_id"]),
             )
         db.commit()
 
@@ -713,11 +754,12 @@ def create_app(test_config: dict | None = None) -> Flask:
                     is_custom,
                     is_active,
                     last_weight,
+                    max_weight,
                     sort_order,
                     created_at,
                     updated_at
                 )
-                VALUES (?, ?, 1, 1, 0, ?, ?, ?)
+                VALUES (?, ?, 1, 1, 0, 0, ?, ?, ?)
                 """,
                 (name, body_part, sort_order, timestamp, timestamp),
             )

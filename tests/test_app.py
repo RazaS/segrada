@@ -49,6 +49,7 @@ class WorkoutLedgerTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(len(payload["body_parts"]), 7)
         self.assertEqual(len(payload["exercises"]), 21)
+        self.assertIn("days_since_used", payload["body_parts"][0])
 
         names = {exercise["name"] for exercise in payload["exercises"]}
         self.assertIn("Hip thrusts", names)
@@ -84,16 +85,23 @@ class WorkoutLedgerTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(payload["event"]["event_type"], "workout")
         self.assertEqual(payload["event"]["exercise_count"], 2)
+        self.assertTrue(payload["event"]["has_pr"])
+        self.assertTrue(payload["event"]["entries"][0]["is_pr"])
 
         hip_thrusts = next(
             exercise for exercise in payload["exercises"] if exercise["name"] == "Hip thrusts"
         )
         self.assertEqual(hip_thrusts["last_weight"], 185)
+        self.assertEqual(hip_thrusts["max_weight"], 185)
 
         month_key = datetime.now().strftime("%Y-%m")
         calendar_response = self.client.get(f"/api/calendar?month={month_key}")
         self.assertEqual(calendar_response.status_code, 200)
         self.assertIn(datetime.now().day, calendar_response.get_json()["workout_days"])
+
+        dashboard_after = self.client.get("/api/dashboard").get_json()
+        legs = next(part for part in dashboard_after["body_parts"] if part["id"] == "legs")
+        self.assertEqual(legs["days_since_used"], 0)
 
     def test_diet_logs_appear_in_timeline(self):
         self.login()

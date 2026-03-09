@@ -264,11 +264,26 @@ table {
 
 .body-part-meta {
     display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
+    align-items: center;
+    gap: 0.45rem;
     color: var(--muted);
     font-size: 0.82rem;
     text-align: right;
+}
+
+.days-badge {
+    min-width: 1.35rem;
+    height: 1.35rem;
+    padding: 0 0.3rem;
+    border-radius: 0.3rem;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: #b85f2f;
+    color: #fff;
+    font-size: 0.72rem;
+    font-weight: 800;
+    line-height: 1;
 }
 
 .exercise-list {
@@ -523,6 +538,23 @@ table {
     letter-spacing: 0.08em;
     text-transform: uppercase;
     color: var(--teal);
+}
+
+.timeline-kind-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.pr-tag {
+    padding: 0.16rem 0.42rem;
+    border-radius: 999px;
+    background: rgba(211, 111, 75, 0.18);
+    color: var(--accent-deep);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
 }
 
 .timeline-time {
