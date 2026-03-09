@@ -389,10 +389,21 @@ function QuickPanel({
     return (
         <aside className={`panel quick-panel ${collapsed ? "is-collapsed" : ""}`}>
             <div className="panel-header">
-                <button className="quick-panel-title" type="button" onClick={onToggleCollapsed}>
+                <div
+                    className="quick-panel-title"
+                    role="button"
+                    tabIndex={0}
+                    onClick={onToggleCollapsed}
+                    onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                            event.preventDefault();
+                            onToggleCollapsed();
+                        }
+                    }}
+                >
                     <p className="eyebrow">Quick Tasks</p>
                     <h2>Workout builder</h2>
-                </button>
+                </div>
             </div>
 
             {collapsed ? (
