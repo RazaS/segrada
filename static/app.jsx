@@ -329,13 +329,13 @@ function BodyPartSection({
         <section className={`body-part-card ${expanded ? "is-open" : ""}`}>
             <button className="body-part-header" type="button" onClick={onToggle}>
                 <div>
+                    <p className="eyebrow">{exercises.length} exercises</p>
                     <h3>{part.label}</h3>
                 </div>
                 <div className="body-part-meta">
                     <span className="days-badge">
                         {part.days_since_used === null ? "—" : part.days_since_used}
                     </span>
-                    <span>{exercises.length} exercises</span>
                     <span aria-hidden="true">{expanded ? "−" : "+"}</span>
                 </div>
             </button>
