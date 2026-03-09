@@ -36,6 +36,33 @@ function currentMonthKey() {
     return `${year}-${month}`;
 }
 
+function sortBodyParts(parts) {
+    return [...parts].sort((left, right) => {
+        if ((left.sort_order || 0) !== (right.sort_order || 0)) {
+            return (left.sort_order || 0) - (right.sort_order || 0);
+        }
+        return left.label.localeCompare(right.label);
+    });
+}
+
+function sortExercises(exercises, bodyParts) {
+    const orderMap = new Map(
+        bodyParts.map((part, index) => [part.id, part.sort_order || index + 1])
+    );
+
+    return [...exercises].sort((left, right) => {
+        const leftOrder = orderMap.get(left.body_part) || 999;
+        const rightOrder = orderMap.get(right.body_part) || 999;
+        if (leftOrder !== rightOrder) {
+            return leftOrder - rightOrder;
+        }
+        if ((left.sort_order || 0) !== (right.sort_order || 0)) {
+            return (left.sort_order || 0) - (right.sort_order || 0);
+        }
+        return left.name.localeCompare(right.name);
+    });
+}
+
 function formatMonthLabel(monthKey) {
     const [year, month] = monthKey.split("-").map(Number);
     return new Intl.DateTimeFormat("en-CA", {
@@ -145,6 +172,81 @@ function LoginScreen({ busy, error, onSubmit }) {
     );
 }
 
+function AppIcon({ children }) {
+    return (
+        <svg
+            className="app-icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+        >
+            {children}
+        </svg>
+    );
+}
+
+function SunIcon() {
+    return (
+        <AppIcon>
+            <circle cx="12" cy="12" r="4.5" />
+            <path d="M12 2.5v2.2" />
+            <path d="M12 19.3v2.2" />
+            <path d="M4.9 4.9l1.6 1.6" />
+            <path d="M17.5 17.5l1.6 1.6" />
+            <path d="M2.5 12h2.2" />
+            <path d="M19.3 12h2.2" />
+            <path d="M4.9 19.1l1.6-1.6" />
+            <path d="M17.5 6.5l1.6-1.6" />
+        </AppIcon>
+    );
+}
+
+function MoonIcon() {
+    return (
+        <AppIcon>
+            <path d="M19 14.8A7.8 7.8 0 1 1 9.2 5a6.4 6.4 0 0 0 9.8 9.8Z" />
+        </AppIcon>
+    );
+}
+
+function RefreshIcon() {
+    return (
+        <AppIcon>
+            <path d="M20 11a8 8 0 1 0 2 5.4" />
+            <path d="M20 4v7h-7" />
+        </AppIcon>
+    );
+}
+
+function LogoutIcon() {
+    return (
+        <AppIcon>
+            <path d="M10 4H6.5A2.5 2.5 0 0 0 4 6.5v11A2.5 2.5 0 0 0 6.5 20H10" />
+            <path d="M14 8l6 4-6 4" />
+            <path d="M20 12H9" />
+        </AppIcon>
+    );
+}
+
+function IconButton({ label, onClick, disabled, children }) {
+    return (
+        <button
+            className="icon-button"
+            type="button"
+            aria-label={label}
+            title={label}
+            onClick={onClick}
+            disabled={disabled}
+        >
+            {children}
+        </button>
+    );
+}
+
 function MetricControl({
     label,
     value,
@@ -218,7 +320,7 @@ function ExerciseCard({
                 </div>
 
                 <button
-                    className={selected ? "secondary-button" : "primary-button"}
+                    className={`${selected ? "secondary-button" : "primary-button"} compact-button`}
                     type="button"
                     onClick={() => onToggleExercise(exercise)}
                 >
@@ -297,17 +399,21 @@ function BodyPartSection({
             </button>
 
             {expanded ? (
-                <div className="exercise-list">
-                    {exercises.map((exercise) => (
-                        <ExerciseCard
-                            key={exercise.id}
-                            exercise={exercise}
-                            draftEntry={draftEntries[exercise.id]}
-                            onToggleExercise={onToggleExercise}
-                            onChangeMetric={onChangeMetric}
-                        />
-                    ))}
-                </div>
+                exercises.length ? (
+                    <div className="exercise-list">
+                        {exercises.map((exercise) => (
+                            <ExerciseCard
+                                key={exercise.id}
+                                exercise={exercise}
+                                draftEntry={draftEntries[exercise.id]}
+                                onToggleExercise={onToggleExercise}
+                                onChangeMetric={onChangeMetric}
+                            />
+                        ))}
+                    </div>
+                ) : (
+                    <div className="empty-inline">No exercises in this section yet.</div>
+                )
             ) : null}
         </section>
     );
@@ -328,18 +434,15 @@ function QuickPanel({
     onChangeMetric,
     onLogWorkout,
     onClearWorkout,
-    onOpenAddExercise,
     onOpenManageExercises,
 }) {
     const activeExercises = exercises.filter((exercise) => exercise.is_active);
     const selectedCount = Object.keys(draftEntries).length;
 
-    const grouped = bodyParts
-        .map((part) => ({
-            ...part,
-            exercises: activeExercises.filter((exercise) => exercise.body_part === part.id),
-        }))
-        .filter((part) => part.exercises.length > 0);
+    const grouped = bodyParts.map((part) => ({
+        ...part,
+        exercises: activeExercises.filter((exercise) => exercise.body_part === part.id),
+    }));
 
     return (
         <aside className={`panel quick-panel ${collapsed ? "is-collapsed" : ""}`}>
@@ -350,7 +453,11 @@ function QuickPanel({
                 </div>
 
                 <div className="panel-header-actions">
-                    <button className="secondary-button panel-toggle" type="button" onClick={onToggleCollapsed}>
+                    <button
+                        className="secondary-button compact-button panel-toggle"
+                        type="button"
+                        onClick={onToggleCollapsed}
+                    >
                         {collapsed ? "Expand" : "Collapse"}
                     </button>
                 </div>
@@ -363,17 +470,14 @@ function QuickPanel({
             ) : (
                 <>
                     <div className="builder-toolbar">
-                        <button className="secondary-button" type="button" onClick={onExpandAll}>
-                            Expand all
+                        <button className="secondary-button compact-button" type="button" onClick={onExpandAll}>
+                            Expand
                         </button>
-                        <button className="secondary-button" type="button" onClick={onCollapseAll}>
-                            Collapse all
+                        <button className="secondary-button compact-button" type="button" onClick={onCollapseAll}>
+                            Collapse
                         </button>
-                        <button className="secondary-button" type="button" onClick={onOpenAddExercise}>
-                            Add exercise
-                        </button>
-                        <button className="secondary-button" type="button" onClick={onOpenManageExercises}>
-                            Exercise management
+                        <button className="secondary-button compact-button" type="button" onClick={onOpenManageExercises}>
+                            Exercises
                         </button>
                     </div>
 
@@ -398,11 +502,11 @@ function QuickPanel({
                             {selectedCount === 1 ? "" : "s"} queued
                         </div>
                         <div className="summary-actions">
-                            <button className="secondary-button" type="button" onClick={onClearWorkout}>
+                            <button className="secondary-button compact-button" type="button" onClick={onClearWorkout}>
                                 Clear
                             </button>
                             <button
-                                className="primary-button"
+                                className="primary-button compact-button"
                                 type="button"
                                 disabled={selectedCount === 0 || loggingWorkout}
                                 onClick={onLogWorkout}
@@ -424,7 +528,7 @@ function WorkoutTable({ entries }) {
                 <thead>
                     <tr>
                         <th>Exercise</th>
-                        <th>Body Part</th>
+                        <th>Section</th>
                         <th>Sets</th>
                         <th>Reps</th>
                         <th>Weight</th>
@@ -516,17 +620,22 @@ function TimelinePanel({
                     <h2>Workout log</h2>
                 </div>
 
-                <div className="panel-header-actions">
+                <div className="panel-header-actions header-tools">
                     <div className="user-chip">{user.display_name}</div>
-                    <button className="secondary-button" type="button" onClick={onToggleTheme}>
-                        {theme === "dark" ? "Light mode" : "Dark mode"}
-                    </button>
-                    <button className="secondary-button" type="button" onClick={onRefresh} disabled={loading}>
-                        {loading ? "Refreshing..." : "Refresh"}
-                    </button>
-                    <button className="secondary-button" type="button" onClick={onLogout}>
-                        Log out
-                    </button>
+                    <div className="icon-button-row">
+                        <IconButton
+                            label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
+                            onClick={onToggleTheme}
+                        >
+                            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+                        </IconButton>
+                        <IconButton label="Refresh" onClick={onRefresh} disabled={loading}>
+                            <RefreshIcon />
+                        </IconButton>
+                        <IconButton label="Log out" onClick={onLogout}>
+                            <LogoutIcon />
+                        </IconButton>
+                    </div>
                 </div>
             </div>
 
@@ -562,7 +671,7 @@ function DietTab({ onProteinShake, onMeal, logging }) {
                 </p>
                 <div className="diet-actions">
                     <button
-                        className="primary-button"
+                        className="primary-button compact-button"
                         type="button"
                         disabled={logging}
                         onClick={onProteinShake}
@@ -579,10 +688,20 @@ function DietTab({ onProteinShake, onMeal, logging }) {
                     Records the timestamp and whether the meal was high protein.
                 </p>
                 <div className="diet-actions">
-                    <button className="secondary-button" type="button" disabled={logging} onClick={() => onMeal(true)}>
+                    <button
+                        className="secondary-button compact-button"
+                        type="button"
+                        disabled={logging}
+                        onClick={() => onMeal(true)}
+                    >
                         Meal eaten · high protein
                     </button>
-                    <button className="secondary-button" type="button" disabled={logging} onClick={() => onMeal(false)}>
+                    <button
+                        className="secondary-button compact-button"
+                        type="button"
+                        disabled={logging}
+                        onClick={() => onMeal(false)}
+                    >
                         Meal eaten · not high protein
                     </button>
                 </div>
@@ -620,10 +739,10 @@ function CalendarTab({ calendar, onPreviousMonth, onNextMonth, loading }) {
                     </div>
 
                     <div className="calendar-actions">
-                        <button className="secondary-button" type="button" onClick={onPreviousMonth} disabled={loading}>
+                        <button className="secondary-button compact-button" type="button" onClick={onPreviousMonth} disabled={loading}>
                             Prev
                         </button>
-                        <button className="secondary-button" type="button" onClick={onNextMonth} disabled={loading}>
+                        <button className="secondary-button compact-button" type="button" onClick={onNextMonth} disabled={loading}>
                             Next
                         </button>
                     </div>
@@ -705,7 +824,7 @@ function Modal({ title, onClose, children }) {
                         <p className="eyebrow">Manage</p>
                         <h3>{title}</h3>
                     </div>
-                    <button className="secondary-button" type="button" onClick={onClose}>
+                    <button className="secondary-button compact-button" type="button" onClick={onClose}>
                         Close
                     </button>
                 </div>
@@ -715,105 +834,189 @@ function Modal({ title, onClose, children }) {
     );
 }
 
-function AddExerciseModal({
-    bodyParts,
-    busy,
-    error,
-    onClose,
-    onSubmit,
-}) {
-    const [name, setName] = useState("");
-    const [bodyPart, setBodyPart] = useState(bodyParts[0]?.id || "legs");
-
-    function handleSubmit(event) {
-        event.preventDefault();
-        onSubmit({ name, body_part: bodyPart });
-    }
-
-    return (
-        <Modal title="Add exercise" onClose={onClose}>
-            <form className="modal-form" onSubmit={handleSubmit}>
-                <label className="field">
-                    <span>Exercise name</span>
-                    <input
-                        type="text"
-                        value={name}
-                        onChange={(event) => setName(event.target.value)}
-                        placeholder="Example: Cable curls"
-                        required
-                    />
-                </label>
-
-                <label className="field">
-                    <span>Body part</span>
-                    <select value={bodyPart} onChange={(event) => setBodyPart(event.target.value)}>
-                        {bodyParts.map((part) => (
-                            <option key={part.id} value={part.id}>
-                                {part.label}
-                            </option>
-                        ))}
-                    </select>
-                </label>
-
-                {error ? <div className="error-banner">{error}</div> : null}
-
-                <div className="card-actions">
-                    <button className="primary-button" type="submit" disabled={busy}>
-                        {busy ? "Saving..." : "Save exercise"}
-                    </button>
-                </div>
-            </form>
-        </Modal>
-    );
-}
-
 function ExerciseManagementModal({
     bodyParts,
     exercises,
     busyId,
+    addExerciseBusy,
+    addSectionBusy,
     error,
     onClose,
+    onAddExercise,
+    onAddSection,
     onToggleVisibility,
+    onMoveExercise,
 }) {
+    const [exerciseName, setExerciseName] = useState("");
+    const [exerciseBodyPart, setExerciseBodyPart] = useState(bodyParts[0]?.id || "");
+    const [sectionLabel, setSectionLabel] = useState("");
+    const [moveTargets, setMoveTargets] = useState({});
+
+    useEffect(() => {
+        if (!bodyParts.length) {
+            return;
+        }
+
+        const found = bodyParts.some((part) => part.id === exerciseBodyPart);
+        if (!found) {
+            setExerciseBodyPart(bodyParts[0].id);
+        }
+    }, [bodyParts, exerciseBodyPart]);
+
+    async function handleAddExercise(event) {
+        event.preventDefault();
+        const saved = await onAddExercise({
+            name: exerciseName,
+            body_part: exerciseBodyPart,
+        });
+        if (saved) {
+            setExerciseName("");
+        }
+    }
+
+    async function handleAddSection(event) {
+        event.preventDefault();
+        const saved = await onAddSection(sectionLabel);
+        if (saved) {
+            setSectionLabel("");
+        }
+    }
+
     return (
-        <Modal title="Exercise management" onClose={onClose}>
+        <Modal title="Exercises" onClose={onClose}>
             {error ? <div className="error-banner">{error}</div> : null}
+
+            <div className="management-forms">
+                <form className="management-form-card" onSubmit={handleAddExercise}>
+                    <p className="eyebrow">Add Exercise</p>
+                    <label className="field">
+                        <span>Exercise name</span>
+                        <input
+                            type="text"
+                            value={exerciseName}
+                            onChange={(event) => setExerciseName(event.target.value)}
+                            placeholder="Example: Cable curls"
+                            required
+                        />
+                    </label>
+
+                    <label className="field">
+                        <span>Section</span>
+                        <select
+                            value={exerciseBodyPart}
+                            onChange={(event) => setExerciseBodyPart(event.target.value)}
+                        >
+                            {bodyParts.map((part) => (
+                                <option key={part.id} value={part.id}>
+                                    {part.label}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+
+                    <button className="primary-button compact-button" type="submit" disabled={addExerciseBusy}>
+                        {addExerciseBusy ? "Saving..." : "Add exercise"}
+                    </button>
+                </form>
+
+                <form className="management-form-card" onSubmit={handleAddSection}>
+                    <p className="eyebrow">Add Section</p>
+                    <label className="field">
+                        <span>Section name</span>
+                        <input
+                            type="text"
+                            value={sectionLabel}
+                            onChange={(event) => setSectionLabel(event.target.value)}
+                            placeholder="Example: Cardio"
+                            required
+                        />
+                    </label>
+
+                    <button className="secondary-button compact-button" type="submit" disabled={addSectionBusy}>
+                        {addSectionBusy ? "Saving..." : "Add section"}
+                    </button>
+                </form>
+            </div>
+
             <div className="management-list">
                 {bodyParts.map((part) => {
                     const items = exercises.filter((exercise) => exercise.body_part === part.id);
-                    if (!items.length) {
-                        return null;
-                    }
 
                     return (
                         <section key={part.id} className="management-group">
-                            <p className="eyebrow">{part.label}</p>
-                            <div className="management-items">
-                                {items.map((exercise) => (
-                                    <div key={exercise.id} className="management-row">
-                                        <div>
-                                            <strong>{exercise.name}</strong>
-                                            <p className="muted">
-                                                {exercise.is_active ? "Shown in quick access" : "Hidden from quick access"}
-                                                {exercise.is_custom ? " · custom" : ""}
-                                            </p>
-                                        </div>
-
-                                        <button
-                                            className="secondary-button"
-                                            type="button"
-                                            disabled={busyId === exercise.id}
-                                            onClick={() => onToggleVisibility(exercise)}
-                                        >
-                                            {busyId === exercise.id
-                                                ? "Saving..."
-                                                : exercise.is_active
-                                                    ? "Hide"
-                                                    : "Show"}
-                                        </button>
-                                    </div>
-                                ))}
+                            <div className="management-group-header">
+                                <div>
+                                    <p className="eyebrow">{part.label}</p>
+                                    <strong>{part.label}</strong>
+                                </div>
+                                <span className="muted">{items.length} exercises</span>
                             </div>
+
+                            {items.length ? (
+                                <div className="management-items">
+                                    {items.map((exercise) => {
+                                        const target = moveTargets[exercise.id] || exercise.body_part;
+                                        const isMoving = busyId === exercise.id;
+                                        return (
+                                            <div key={exercise.id} className="management-row">
+                                                <div className="management-copy">
+                                                    <strong>{exercise.name}</strong>
+                                                    <p className="muted">
+                                                        {exercise.is_active
+                                                            ? "Shown in quick access"
+                                                            : "Hidden from quick access"}
+                                                        {exercise.is_custom ? " · custom" : ""}
+                                                    </p>
+                                                </div>
+
+                                                <div className="management-controls">
+                                                    <select
+                                                        className="management-select"
+                                                        value={target}
+                                                        disabled={isMoving}
+                                                        onChange={(event) =>
+                                                            setMoveTargets((current) => ({
+                                                                ...current,
+                                                                [exercise.id]: event.target.value,
+                                                            }))
+                                                        }
+                                                    >
+                                                        {bodyParts.map((bodyPart) => (
+                                                            <option key={bodyPart.id} value={bodyPart.id}>
+                                                                {bodyPart.label}
+                                                            </option>
+                                                        ))}
+                                                    </select>
+
+                                                    <button
+                                                        className="secondary-button compact-button"
+                                                        type="button"
+                                                        disabled={isMoving || target === exercise.body_part}
+                                                        onClick={() => onMoveExercise(exercise, target)}
+                                                    >
+                                                        {isMoving ? "Saving..." : "Move"}
+                                                    </button>
+
+                                                    <button
+                                                        className="secondary-button compact-button"
+                                                        type="button"
+                                                        disabled={isMoving}
+                                                        onClick={() => onToggleVisibility(exercise)}
+                                                    >
+                                                        {isMoving
+                                                            ? "Saving..."
+                                                            : exercise.is_active
+                                                                ? "Hide"
+                                                                : "Show"}
+                                                    </button>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            ) : (
+                                <div className="empty-inline">No exercises here yet.</div>
+                            )}
                         </section>
                     );
                 })}
@@ -823,15 +1026,16 @@ function ExerciseManagementModal({
 }
 
 function App() {
+    const initialMonth = currentMonthKey();
     const [sessionChecked, setSessionChecked] = useState(false);
     const [user, setUser] = useState(null);
     const [bodyParts, setBodyParts] = useState([]);
     const [exercises, setExercises] = useState([]);
     const [timeline, setTimeline] = useState([]);
     const [calendar, setCalendar] = useState({
-        month: currentMonthKey(),
-        year: Number(currentMonthKey().slice(0, 4)),
-        month_number: Number(currentMonthKey().slice(5, 7)),
+        month: initialMonth,
+        year: Number(initialMonth.slice(0, 4)),
+        month_number: Number(initialMonth.slice(5, 7)),
         workout_days: [],
     });
 
@@ -849,15 +1053,13 @@ function App() {
     const [draftEntries, setDraftEntries] = useState({});
     const [bottomTab, setBottomTab] = useState("diet");
 
-    const [showAddExercise, setShowAddExercise] = useState(false);
     const [showManageExercises, setShowManageExercises] = useState(false);
-    const [addExerciseBusy, setAddExerciseBusy] = useState(false);
-    const [addExerciseError, setAddExerciseError] = useState("");
     const [manageError, setManageError] = useState("");
     const [manageBusyId, setManageBusyId] = useState(null);
+    const [addExerciseBusy, setAddExerciseBusy] = useState(false);
+    const [addSectionBusy, setAddSectionBusy] = useState(false);
 
-    const calendarMonth = calendar.month;
-    const calendarMonthRef = useRef(calendarMonth);
+    const calendarMonthRef = useRef(calendar.month);
 
     useEffect(() => {
         document.documentElement.dataset.theme = theme;
@@ -865,8 +1067,8 @@ function App() {
     }, [theme]);
 
     useEffect(() => {
-        calendarMonthRef.current = calendarMonth;
-    }, [calendarMonth]);
+        calendarMonthRef.current = calendar.month;
+    }, [calendar.month]);
 
     useEffect(() => {
         loadSession();
@@ -900,8 +1102,8 @@ function App() {
         setActionError("");
         try {
             const payload = await apiFetch(`/api/dashboard?month=${encodeURIComponent(monthKey)}`);
-            setBodyParts(payload.body_parts);
-            setExercises(payload.exercises);
+            setBodyParts(sortBodyParts(payload.body_parts));
+            setExercises(sortExercises(payload.exercises, payload.body_parts));
             setTimeline(payload.timeline);
             setCalendar(payload.calendar);
         } catch (error) {
@@ -960,7 +1162,6 @@ function App() {
             setActionError(error.message);
         } finally {
             setUser(null);
-            setShowAddExercise(false);
             setShowManageExercises(false);
         }
     }
@@ -1039,7 +1240,7 @@ function App() {
                 body: JSON.stringify({ entries }),
             });
             setTimeline((current) => [payload.event, ...current]);
-            setExercises(payload.exercises);
+            setExercises((current) => sortExercises(payload.exercises, bodyParts.length ? bodyParts : current));
             setDraftEntries({});
             await loadCalendar(calendarMonthRef.current);
         } catch (error) {
@@ -1083,9 +1284,9 @@ function App() {
         }
     }
 
-    async function submitExercise(form) {
+    async function handleAddExercise(form) {
         setAddExerciseBusy(true);
-        setAddExerciseError("");
+        setManageError("");
         try {
             const payload = await apiFetch("/api/exercises", {
                 method: "POST",
@@ -1094,35 +1295,46 @@ function App() {
                 },
                 body: JSON.stringify(form),
             });
-
-            setExercises((current) => {
-                const next = [...current, payload.exercise];
-                next.sort((left, right) => {
-                    const leftBody = bodyParts.findIndex((part) => part.id === left.body_part);
-                    const rightBody = bodyParts.findIndex((part) => part.id === right.body_part);
-                    if (leftBody !== rightBody) {
-                        return leftBody - rightBody;
-                    }
-                    if (left.sort_order !== right.sort_order) {
-                        return left.sort_order - right.sort_order;
-                    }
-                    return left.name.localeCompare(right.name);
-                });
-                return next;
-            });
+            setExercises((current) => sortExercises([...current, payload.exercise], bodyParts));
             setExpandedParts((current) => ({
                 ...current,
                 [payload.exercise.body_part]: true,
             }));
-            setShowAddExercise(false);
+            return true;
         } catch (error) {
-            setAddExerciseError(error.message);
+            setManageError(error.message);
+            return false;
         } finally {
             setAddExerciseBusy(false);
         }
     }
 
-    async function toggleExerciseVisibility(exercise) {
+    async function handleAddSection(label) {
+        setAddSectionBusy(true);
+        setManageError("");
+        try {
+            const payload = await apiFetch("/api/body-parts", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ label }),
+            });
+            setBodyParts((current) => sortBodyParts([...current, payload.body_part]));
+            setExpandedParts((current) => ({
+                ...current,
+                [payload.body_part.id]: true,
+            }));
+            return true;
+        } catch (error) {
+            setManageError(error.message);
+            return false;
+        } finally {
+            setAddSectionBusy(false);
+        }
+    }
+
+    async function handleExerciseUpdate(exercise, updates) {
         setManageBusyId(exercise.id);
         setManageError("");
         try {
@@ -1131,14 +1343,19 @@ function App() {
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({ is_active: !exercise.is_active }),
+                body: JSON.stringify(updates),
             });
+
             setExercises((current) =>
-                current.map((item) =>
-                    item.id === exercise.id ? payload.exercise : item
+                sortExercises(
+                    current.map((item) =>
+                        item.id === exercise.id ? payload.exercise : item
+                    ),
+                    bodyParts
                 )
             );
-            if (exercise.is_active) {
+
+            if (Object.prototype.hasOwnProperty.call(updates, "is_active") && !updates.is_active) {
                 setDraftEntries((current) => {
                     if (!current[exercise.id]) {
                         return current;
@@ -1147,6 +1364,13 @@ function App() {
                     delete nextEntries[exercise.id];
                     return nextEntries;
                 });
+            }
+
+            if (updates.body_part) {
+                setExpandedParts((current) => ({
+                    ...current,
+                    [updates.body_part]: true,
+                }));
             }
         } catch (error) {
             setManageError(error.message);
@@ -1206,10 +1430,6 @@ function App() {
                     onChangeMetric={changeMetric}
                     onLogWorkout={logWorkout}
                     onClearWorkout={() => setDraftEntries({})}
-                    onOpenAddExercise={() => {
-                        setAddExerciseError("");
-                        setShowAddExercise(true);
-                    }}
                     onOpenManageExercises={() => {
                         setManageError("");
                         setShowManageExercises(true);
@@ -1242,24 +1462,27 @@ function App() {
                 />
             </div>
 
-            {showAddExercise ? (
-                <AddExerciseModal
-                    bodyParts={bodyParts}
-                    busy={addExerciseBusy}
-                    error={addExerciseError}
-                    onClose={() => setShowAddExercise(false)}
-                    onSubmit={submitExercise}
-                />
-            ) : null}
-
             {showManageExercises ? (
                 <ExerciseManagementModal
                     bodyParts={bodyParts}
                     exercises={exercises}
                     busyId={manageBusyId}
+                    addExerciseBusy={addExerciseBusy}
+                    addSectionBusy={addSectionBusy}
                     error={manageError}
                     onClose={() => setShowManageExercises(false)}
-                    onToggleVisibility={toggleExerciseVisibility}
+                    onAddExercise={handleAddExercise}
+                    onAddSection={handleAddSection}
+                    onToggleVisibility={(exercise) =>
+                        handleExerciseUpdate(exercise, {
+                            is_active: !exercise.is_active,
+                        })
+                    }
+                    onMoveExercise={(exercise, bodyPart) =>
+                        handleExerciseUpdate(exercise, {
+                            body_part: bodyPart,
+                        })
+                    }
                 />
             ) : null}
         </>

@@ -112,17 +112,33 @@ class WorkoutLedgerTests(unittest.TestCase):
         self.assertEqual(event_types[:2], ["meal", "protein_shake"])
         self.assertTrue(dashboard["timeline"][0]["high_protein"])
 
-    def test_custom_exercise_can_be_added_and_hidden(self):
+    def test_custom_section_and_exercise_can_be_added_moved_and_hidden(self):
         self.login()
+
+        body_part_response = self.client.post(
+            "/api/body-parts",
+            json={"label": "Cardio"},
+        )
+        self.assertEqual(body_part_response.status_code, 201)
+        body_part = body_part_response.get_json()["body_part"]
+        self.assertEqual(body_part["label"], "Cardio")
 
         create_response = self.client.post(
             "/api/exercises",
-            json={"name": "Cable curls", "body_part": "arms"},
+            json={"name": "Cable curls", "body_part": body_part["id"]},
         )
         self.assertEqual(create_response.status_code, 201)
         exercise = create_response.get_json()["exercise"]
         self.assertTrue(exercise["is_active"])
         self.assertTrue(exercise["is_custom"])
+        self.assertEqual(exercise["body_part_label"], "Cardio")
+
+        move_response = self.client.patch(
+            f"/api/exercises/{exercise['id']}",
+            json={"body_part": "arms"},
+        )
+        self.assertEqual(move_response.status_code, 200)
+        self.assertEqual(move_response.get_json()["exercise"]["body_part"], "arms")
 
         hide_response = self.client.patch(
             f"/api/exercises/{exercise['id']}",
@@ -132,10 +148,13 @@ class WorkoutLedgerTests(unittest.TestCase):
         self.assertFalse(hide_response.get_json()["exercise"]["is_active"])
 
         dashboard = self.client.get("/api/dashboard").get_json()
+        labels = {part["label"] for part in dashboard["body_parts"]}
+        self.assertIn("Cardio", labels)
         stored = next(
             item for item in dashboard["exercises"] if item["name"] == "Cable curls"
         )
         self.assertFalse(stored["is_active"])
+        self.assertEqual(stored["body_part"], "arms")
 
     def test_protected_routes_require_login(self):
         response = self.client.get("/api/dashboard")
