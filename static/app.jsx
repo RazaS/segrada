@@ -327,22 +327,16 @@ function BodyPartSection({
 }) {
     return (
         <section className={`body-part-card ${expanded ? "is-open" : ""}`}>
-            <div className="body-part-header">
+            <button className="body-part-header" type="button" onClick={onToggle}>
                 <div>
                     <p className="eyebrow">{part.label}</p>
                     <h3>{part.label}</h3>
                 </div>
                 <div className="body-part-meta">
                     <span>{exercises.length} exercises</span>
-                    <button
-                        className="secondary-button compact-button"
-                        type="button"
-                        onClick={onToggle}
-                    >
-                        {expanded ? "Fold" : "Unfold"}
-                    </button>
+                    <span>{expanded ? "Collapse" : "Expand"}</span>
                 </div>
-            </div>
+            </button>
 
             {expanded ? (
                 exercises.length ? (
@@ -417,10 +411,10 @@ function QuickPanel({
                 <>
                     <div className="builder-toolbar">
                         <button className="secondary-button compact-button" type="button" onClick={onExpandAll}>
-                            Expand
+                            Unfold
                         </button>
                         <button className="secondary-button compact-button" type="button" onClick={onCollapseAll}>
-                            Collapse
+                            Fold
                         </button>
                         <button className="secondary-button compact-button" type="button" onClick={onOpenManageExercises}>
                             Exercises

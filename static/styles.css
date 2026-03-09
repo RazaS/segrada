@@ -264,8 +264,8 @@ table {
 
 .body-part-meta {
     display: flex;
-    align-items: center;
-    gap: 0.55rem;
+    flex-direction: column;
+    gap: 0.2rem;
     color: var(--muted);
     font-size: 0.82rem;
     text-align: right;
@@ -799,9 +799,6 @@ table {
         min-width: 0;
     }
 
-    .body-part-meta {
-        justify-content: space-between;
-    }
 }
 
 @media (max-width: 640px) {
