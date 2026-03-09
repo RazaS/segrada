@@ -191,7 +191,7 @@ table {
     flex-direction: column;
     align-items: flex-start;
     gap: 0.05rem;
-    padding: 0;
+    padding: 0 0 0.35rem;
     border: none;
     background: transparent;
     color: inherit;
