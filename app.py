@@ -5,7 +5,7 @@ import os
 import sqlite3
 import time
 from io import BytesIO
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from pathlib import Path
 from urllib.parse import urlencode
@@ -368,6 +368,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         SESSION_COOKIE_HTTPONLY=True,
         SESSION_COOKIE_SAMESITE="Lax",
         SESSION_COOKIE_SECURE=os.environ.get("SESSION_COOKIE_SECURE") == "1",
+        PERMANENT_SESSION_LIFETIME=timedelta(days=365),
     )
 
     if test_config:
@@ -421,6 +422,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         if not user or user["password"] != password:
             return jsonify({"error": "Invalid username or password."}), 401
 
+        session.permanent = True
         session["username"] = username
         return jsonify({"user": public_user(username)})
 

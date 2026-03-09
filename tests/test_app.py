@@ -34,15 +34,29 @@ class PetTimelineAppTests(unittest.TestCase):
             json={"username": username, "password": password},
         )
 
-    def test_login_sets_session(self):
+    def test_login_sets_persistent_session(self):
         response = self.login()
         self.assertEqual(response.status_code, 200)
         payload = response.get_json()
         self.assertEqual(payload["user"]["username"], "victoria")
+        self.assertIn("Expires=", response.headers.get("Set-Cookie", ""))
+
+        with self.client.session_transaction() as session_state:
+            self.assertTrue(session_state.permanent)
 
         session_response = self.client.get("/api/session")
         self.assertEqual(session_response.status_code, 200)
         self.assertTrue(session_response.get_json()["authenticated"])
+
+    def test_logout_clears_remembered_login(self):
+        self.login()
+
+        logout_response = self.client.post("/api/logout")
+        self.assertEqual(logout_response.status_code, 200)
+
+        session_response = self.client.get("/api/session")
+        self.assertEqual(session_response.status_code, 200)
+        self.assertFalse(session_response.get_json()["authenticated"])
 
     def test_create_edit_and_delete_post_with_photo(self):
         self.login()
