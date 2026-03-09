@@ -29,10 +29,8 @@ DEFAULT_BODY_PARTS = [
     {"id": "neck", "label": "Neck"},
 ]
 
-DEFAULT_BODY_PART_ORDER = {
-    part["id"]: index for index, part in enumerate(DEFAULT_BODY_PARTS, start=1)
-}
 TORONTO_TZ = ZoneInfo("America/Toronto")
+WORKOUT_SESSION_WINDOW = timedelta(hours=6)
 
 SEED_EXERCISES = {
     "legs": [
@@ -83,6 +81,10 @@ def now_utc_iso() -> str:
 
 def toronto_now() -> datetime:
     return datetime.now(TORONTO_TZ).replace(microsecond=0)
+
+
+def parse_iso(value: str) -> datetime:
+    return datetime.fromisoformat(value)
 
 
 def public_user(username: str | None) -> dict | None:
@@ -187,6 +189,7 @@ def serialize_body_part(row: sqlite3.Row) -> dict:
         "label": row["label"],
         "sort_order": row["sort_order"],
         "days_since_used": row["days_since_used"] if "days_since_used" in row.keys() else None,
+        "last_used_at": row["last_used_at"] if "last_used_at" in row.keys() else None,
     }
 
 
@@ -200,34 +203,35 @@ def list_body_parts() -> list[dict]:
         """
     ).fetchall()
     latest_by_part: dict[str, datetime] = {}
-    workout_rows = db.execute(
+    used_rows = db.execute(
         """
-        SELECT payload, created_at
-        FROM timeline_events
-        WHERE event_type = 'workout'
-        ORDER BY datetime(created_at) DESC, id DESC
+        SELECT body_part, MAX(created_at) AS last_used_at
+        FROM workout_entries
+        GROUP BY body_part
         """
     ).fetchall()
-    for workout_row in workout_rows:
-        created_at = datetime.fromisoformat(workout_row["created_at"]).astimezone(TORONTO_TZ)
-        payload = json.loads(workout_row["payload"])
-        for entry in payload.get("entries", []):
-            body_part = entry.get("body_part")
-            if body_part and body_part not in latest_by_part:
-                latest_by_part[body_part] = created_at
+    for used_row in used_rows:
+        if used_row["last_used_at"]:
+            latest_by_part[used_row["body_part"]] = parse_iso(used_row["last_used_at"]).astimezone(
+                TORONTO_TZ
+            )
 
     today = toronto_now().date()
-    return [
-        {
-            "id": row["id"],
-            "label": row["label"],
-            "sort_order": row["sort_order"],
-            "days_since_used": None
-            if row["id"] not in latest_by_part
-            else (today - latest_by_part[row["id"]].date()).days,
-        }
-        for row in rows
-    ]
+    payload = []
+    for row in rows:
+        last_used_at = latest_by_part.get(row["id"])
+        payload.append(
+            {
+                "id": row["id"],
+                "label": row["label"],
+                "sort_order": row["sort_order"],
+                "days_since_used": None
+                if last_used_at is None
+                else (today - last_used_at.date()).days,
+                "last_used_at": None if last_used_at is None else last_used_at.isoformat(),
+            }
+        )
+    return payload
 
 
 def body_part_label_map() -> dict[str, str]:
@@ -283,6 +287,18 @@ def seed_exercises() -> None:
     db.commit()
 
 
+def ensure_column(table_name: str, column_name: str, ddl: str) -> None:
+    db = get_db()
+    columns = {row["name"] for row in db.execute(f"PRAGMA table_info({table_name})").fetchall()}
+    if column_name not in columns:
+        try:
+            db.execute(f"ALTER TABLE {table_name} ADD COLUMN {ddl}")
+            db.commit()
+        except sqlite3.OperationalError as error:
+            if "duplicate column name" not in str(error).lower():
+                raise
+
+
 def init_db() -> None:
     db = get_db()
     db.executescript(
@@ -314,19 +330,48 @@ def init_db() -> None:
             payload TEXT NOT NULL,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS workout_sessions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            author TEXT NOT NULL,
+            started_at TEXT NOT NULL,
+            last_logged_at TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS workout_entries (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id INTEGER NOT NULL,
+            exercise_id INTEGER,
+            exercise_name TEXT NOT NULL,
+            body_part TEXT NOT NULL,
+            body_part_label TEXT NOT NULL,
+            sets INTEGER NOT NULL,
+            reps INTEGER NOT NULL,
+            weight INTEGER NOT NULL,
+            is_pr INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (session_id) REFERENCES workout_sessions (id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_workout_entries_session_id
+        ON workout_entries (session_id);
+
+        CREATE INDEX IF NOT EXISTS idx_workout_entries_exercise_id
+        ON workout_entries (exercise_id);
+
+        CREATE INDEX IF NOT EXISTS idx_workout_sessions_author_last_logged
+        ON workout_sessions (author, last_logged_at);
         """
     )
     db.commit()
-    columns = {row["name"] for row in db.execute("PRAGMA table_info(exercises)").fetchall()}
-    if "max_weight" not in columns:
-        try:
-            db.execute("ALTER TABLE exercises ADD COLUMN max_weight INTEGER NOT NULL DEFAULT 0")
-            db.commit()
-        except sqlite3.OperationalError as error:
-            if "duplicate column name" not in str(error).lower():
-                raise
+    ensure_column("exercises", "max_weight", "max_weight INTEGER NOT NULL DEFAULT 0")
     seed_body_parts()
     seed_exercises()
+    migrate_legacy_workouts()
+    recompute_all_workout_aggregates()
 
 
 def serialize_exercise(row: sqlite3.Row) -> dict:
@@ -389,10 +434,364 @@ def get_exercise(exercise_id: int) -> sqlite3.Row | None:
     ).fetchone()
 
 
-def serialize_event(row: sqlite3.Row, labels: dict[str, str]) -> dict:
+def serialize_workout_entry(row: sqlite3.Row, labels: dict[str, str]) -> dict:
+    return {
+        "id": row["id"],
+        "exercise_id": row["exercise_id"],
+        "exercise_name": row["exercise_name"],
+        "body_part": row["body_part"],
+        "body_part_label": row["body_part_label"] or labels.get(row["body_part"], row["body_part"]),
+        "sets": row["sets"],
+        "reps": row["reps"],
+        "weight": row["weight"],
+        "is_pr": bool(row["is_pr"]),
+        "created_at": row["created_at"],
+    }
+
+
+def get_workout_session_row(session_id: int) -> sqlite3.Row | None:
+    return get_db().execute(
+        """
+        SELECT id, author, started_at, last_logged_at, created_at, updated_at
+        FROM workout_sessions
+        WHERE id = ?
+        """,
+        (session_id,),
+    ).fetchone()
+
+
+def list_workout_session_rows(author: str | None = None) -> list[sqlite3.Row]:
+    db = get_db()
+    if author:
+        return db.execute(
+            """
+            SELECT id, author, started_at, last_logged_at, created_at, updated_at
+            FROM workout_sessions
+            WHERE author = ?
+            ORDER BY datetime(last_logged_at) DESC, id DESC
+            """,
+            (author,),
+        ).fetchall()
+
+    return db.execute(
+        """
+        SELECT id, author, started_at, last_logged_at, created_at, updated_at
+        FROM workout_sessions
+        ORDER BY datetime(last_logged_at) DESC, id DESC
+        """
+    ).fetchall()
+
+
+def list_session_entries(session_id: int, labels: dict[str, str]) -> list[dict]:
+    rows = get_db().execute(
+        """
+        SELECT
+            id,
+            session_id,
+            exercise_id,
+            exercise_name,
+            body_part,
+            body_part_label,
+            sets,
+            reps,
+            weight,
+            is_pr,
+            created_at,
+            updated_at
+        FROM workout_entries
+        WHERE session_id = ?
+        ORDER BY datetime(created_at) ASC, id ASC
+        """,
+        (session_id,),
+    ).fetchall()
+    return [serialize_workout_entry(row, labels) for row in rows]
+
+
+def serialize_workout_session(row: sqlite3.Row, labels: dict[str, str]) -> dict:
+    entries = list_session_entries(row["id"], labels)
+    body_parts: list[str] = []
+    seen_parts: set[str] = set()
+    total_volume = 0
+    for entry in entries:
+        total_volume += entry["sets"] * entry["reps"] * abs(entry["weight"])
+        label = entry["body_part_label"]
+        if label not in seen_parts:
+            seen_parts.add(label)
+            body_parts.append(label)
+
+    return {
+        "id": row["id"],
+        "item_type": "workout_session",
+        "author": row["author"],
+        "author_name": USERS[row["author"]]["display_name"],
+        "started_at": row["started_at"],
+        "last_logged_at": row["last_logged_at"],
+        "created_at": row["last_logged_at"],
+        "entries": entries,
+        "exercise_count": len(entries),
+        "total_volume": total_volume,
+        "has_pr": any(entry["is_pr"] for entry in entries),
+        "body_parts": body_parts,
+        "is_active_queue": parse_iso(row["last_logged_at"]) >= now_utc() - WORKOUT_SESSION_WINDOW,
+    }
+
+
+def list_workout_sessions(author: str | None = None) -> list[dict]:
+    labels = body_part_label_map()
+    return [serialize_workout_session(row, labels) for row in list_workout_session_rows(author)]
+
+
+def get_workout_session(session_id: int, *, author: str | None = None) -> dict | None:
+    row = get_workout_session_row(session_id)
+    if row is None:
+        return None
+    if author and row["author"] != author:
+        return None
+    return serialize_workout_session(row, body_part_label_map())
+
+
+def get_active_workout_session_row(author: str, *, reference_time: datetime | None = None) -> sqlite3.Row | None:
+    row = get_db().execute(
+        """
+        SELECT id, author, started_at, last_logged_at, created_at, updated_at
+        FROM workout_sessions
+        WHERE author = ?
+        ORDER BY datetime(last_logged_at) DESC, id DESC
+        LIMIT 1
+        """,
+        (author,),
+    ).fetchone()
+    if row is None:
+        return None
+
+    current_time = reference_time or now_utc()
+    if current_time - parse_iso(row["last_logged_at"]) <= WORKOUT_SESSION_WINDOW:
+        return row
+    return None
+
+
+def get_active_workout_session(author: str) -> dict | None:
+    row = get_active_workout_session_row(author)
+    if row is None:
+        return None
+    return serialize_workout_session(row, body_part_label_map())
+
+
+def create_workout_session(author: str, timestamp: str) -> int:
+    cursor = get_db().execute(
+        """
+        INSERT INTO workout_sessions (author, started_at, last_logged_at, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (author, timestamp, timestamp, timestamp, timestamp),
+    )
+    get_db().commit()
+    return cursor.lastrowid
+
+
+def sync_workout_session(session_id: int) -> None:
+    db = get_db()
+    summary = db.execute(
+        """
+        SELECT MIN(created_at) AS started_at, MAX(created_at) AS last_logged_at
+        FROM workout_entries
+        WHERE session_id = ?
+        """,
+        (session_id,),
+    ).fetchone()
+
+    if not summary or summary["started_at"] is None or summary["last_logged_at"] is None:
+        db.execute("DELETE FROM workout_sessions WHERE id = ?", (session_id,))
+        db.commit()
+        return
+
+    db.execute(
+        """
+        UPDATE workout_sessions
+        SET started_at = ?, last_logged_at = ?, updated_at = ?
+        WHERE id = ?
+        """,
+        (summary["started_at"], summary["last_logged_at"], now_utc_iso(), session_id),
+    )
+    db.commit()
+
+
+def recompute_pr_flags(exercise_ids: set[int]) -> None:
+    db = get_db()
+    for exercise_id in exercise_ids:
+        if not exercise_id:
+            continue
+        rows = db.execute(
+            """
+            SELECT id, weight
+            FROM workout_entries
+            WHERE exercise_id = ?
+            ORDER BY datetime(created_at) ASC, id ASC
+            """,
+            (exercise_id,),
+        ).fetchall()
+        running_max: int | None = None
+        for row in rows:
+            is_pr = 1 if running_max is None or row["weight"] > running_max else 0
+            if running_max is None or row["weight"] > running_max:
+                running_max = row["weight"]
+            db.execute(
+                "UPDATE workout_entries SET is_pr = ?, updated_at = ? WHERE id = ?",
+                (is_pr, now_utc_iso(), row["id"]),
+            )
+    db.commit()
+
+
+def recompute_exercise_aggregates(exercise_ids: set[int]) -> None:
+    if not exercise_ids:
+        return
+
+    db = get_db()
+    recompute_pr_flags(exercise_ids)
+    timestamp = now_utc_iso()
+
+    for exercise_id in exercise_ids:
+        if not exercise_id:
+            continue
+
+        max_row = db.execute(
+            """
+            SELECT COALESCE(MAX(weight), 0) AS max_weight
+            FROM workout_entries
+            WHERE exercise_id = ?
+            """,
+            (exercise_id,),
+        ).fetchone()
+
+        latest_session_row = db.execute(
+            """
+            SELECT workout_sessions.id
+            FROM workout_entries
+            JOIN workout_sessions ON workout_sessions.id = workout_entries.session_id
+            WHERE workout_entries.exercise_id = ?
+            ORDER BY datetime(workout_sessions.last_logged_at) DESC, workout_sessions.id DESC
+            LIMIT 1
+            """,
+            (exercise_id,),
+        ).fetchone()
+
+        last_weight = 0
+        if latest_session_row is not None:
+            session_max = db.execute(
+                """
+                SELECT COALESCE(MAX(weight), 0) AS last_weight
+                FROM workout_entries
+                WHERE exercise_id = ? AND session_id = ?
+                """,
+                (exercise_id, latest_session_row["id"]),
+            ).fetchone()
+            last_weight = session_max["last_weight"]
+
+        db.execute(
+            """
+            UPDATE exercises
+            SET last_weight = ?, max_weight = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (last_weight, max_row["max_weight"], timestamp, exercise_id),
+        )
+
+    db.commit()
+
+
+def recompute_all_workout_aggregates() -> None:
+    rows = get_db().execute(
+        "SELECT id FROM exercises"
+    ).fetchall()
+    recompute_exercise_aggregates({row["id"] for row in rows})
+
+
+def migrate_legacy_workouts() -> None:
+    db = get_db()
+    rows = db.execute(
+        """
+        SELECT id, author, payload, created_at
+        FROM timeline_events
+        WHERE event_type = 'workout'
+        ORDER BY author ASC, datetime(created_at) ASC, id ASC
+        """
+    ).fetchall()
+    if not rows:
+        return
+
+    active_sessions: dict[str, tuple[int, datetime]] = {}
+    labels = body_part_label_map()
+
+    for row in rows:
+        author = row["author"]
+        created_at = parse_iso(row["created_at"])
+        payload = json.loads(row["payload"])
+        current = active_sessions.get(author)
+
+        if current is None or created_at - current[1] > WORKOUT_SESSION_WINDOW:
+            session_id = create_workout_session(author, row["created_at"])
+        else:
+            session_id = current[0]
+
+        for entry in payload.get("entries", []):
+            body_part = entry.get("body_part") or ""
+            db.execute(
+                """
+                INSERT INTO workout_entries (
+                    session_id,
+                    exercise_id,
+                    exercise_name,
+                    body_part,
+                    body_part_label,
+                    sets,
+                    reps,
+                    weight,
+                    is_pr,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    session_id,
+                    entry.get("exercise_id"),
+                    entry.get("exercise_name") or "Exercise",
+                    body_part,
+                    entry.get("body_part_label") or labels.get(body_part, body_part),
+                    int(entry.get("sets", 1)),
+                    int(entry.get("reps", 1)),
+                    int(entry.get("weight", 0)),
+                    0,
+                    row["created_at"],
+                    row["created_at"],
+                ),
+            )
+
+        db.execute(
+            """
+            UPDATE workout_sessions
+            SET last_logged_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (row["created_at"], row["created_at"], session_id),
+        )
+        active_sessions[author] = (session_id, created_at)
+
+    db.execute(
+        """
+        UPDATE timeline_events
+        SET event_type = 'workout_legacy'
+        WHERE event_type = 'workout'
+        """
+    )
+    db.commit()
+
+
+def serialize_timeline_event(row: sqlite3.Row) -> dict:
     payload = json.loads(row["payload"])
     event = {
         "id": row["id"],
+        "item_type": "timeline_event",
         "author": row["author"],
         "author_name": USERS[row["author"]]["display_name"],
         "event_type": row["event_type"],
@@ -400,44 +799,58 @@ def serialize_event(row: sqlite3.Row, labels: dict[str, str]) -> dict:
         "created_at": row["created_at"],
     }
 
-    if row["event_type"] == "workout":
-        entries = []
-        total_volume = 0
-        for entry in payload.get("entries", []):
-            total_volume += entry["sets"] * entry["reps"] * entry["weight"]
-            entries.append(
-                {
-                    "exercise_id": entry["exercise_id"],
-                    "exercise_name": entry["exercise_name"],
-                    "body_part": entry["body_part"],
-                    "body_part_label": entry.get("body_part_label")
-                    or labels.get(entry["body_part"], entry["body_part"]),
-                    "sets": entry["sets"],
-                    "reps": entry["reps"],
-                    "weight": entry["weight"],
-                    "is_pr": bool(entry.get("is_pr")),
-                }
-            )
-        event["exercise_count"] = len(entries)
-        event["entries"] = entries
-        event["total_volume"] = total_volume
-        event["has_pr"] = any(entry["is_pr"] for entry in entries)
-    elif row["event_type"] == "meal":
+    if row["event_type"] == "meal":
         event["high_protein"] = bool(payload.get("high_protein"))
 
     return event
 
 
-def list_timeline() -> list[dict]:
-    labels = body_part_label_map()
-    rows = get_db().execute(
-        """
-        SELECT id, author, event_type, payload, created_at
-        FROM timeline_events
-        ORDER BY datetime(created_at) DESC, id DESC
-        """
-    ).fetchall()
-    return [serialize_event(row, labels) for row in rows]
+def list_timeline(author: str | None = None) -> list[dict]:
+    db = get_db()
+    if author:
+        diet_rows = db.execute(
+            """
+            SELECT id, author, event_type, payload, created_at
+            FROM timeline_events
+            WHERE author = ? AND event_type != 'workout' AND event_type != 'workout_legacy'
+            ORDER BY datetime(created_at) DESC, id DESC
+            """,
+            (author,),
+        ).fetchall()
+    else:
+        diet_rows = db.execute(
+            """
+            SELECT id, author, event_type, payload, created_at
+            FROM timeline_events
+            WHERE event_type != 'workout' AND event_type != 'workout_legacy'
+            ORDER BY datetime(created_at) DESC, id DESC
+            """
+        ).fetchall()
+
+    items: list[dict] = []
+    for session_payload in list_workout_sessions(author):
+        items.append(
+            {
+                **session_payload,
+                "_sort_at": session_payload["last_logged_at"],
+                "_sort_rank": session_payload["id"],
+            }
+        )
+    for row in diet_rows:
+        event = serialize_timeline_event(row)
+        items.append(
+            {
+                **event,
+                "_sort_at": event["created_at"],
+                "_sort_rank": event["id"],
+            }
+        )
+
+    items.sort(key=lambda item: (item["_sort_at"], item["_sort_rank"]), reverse=True)
+    for item in items:
+        item.pop("_sort_at", None)
+        item.pop("_sort_rank", None)
+    return items
 
 
 def parse_month_key(value: str | None) -> tuple[int, int]:
@@ -459,14 +872,13 @@ def month_calendar_payload(month_key: str | None) -> dict:
     rows = get_db().execute(
         """
         SELECT created_at
-        FROM timeline_events
-        WHERE event_type = 'workout'
+        FROM workout_entries
         ORDER BY datetime(created_at) DESC, id DESC
         """
     ).fetchall()
 
     for row in rows:
-        local_value = datetime.fromisoformat(row["created_at"]).astimezone(TORONTO_TZ)
+        local_value = parse_iso(row["created_at"]).astimezone(TORONTO_TZ)
         if local_value.year == year and local_value.month == month:
             workout_days.add(local_value.day)
 
@@ -497,30 +909,40 @@ def create_timeline_event(author: str, event_type: str, payload: dict) -> dict:
         """,
         (cursor.lastrowid,),
     ).fetchone()
-    return serialize_event(row, body_part_label_map())
+    return serialize_timeline_event(row)
 
 
-def dashboard_payload(month_key: str | None) -> dict:
+def dashboard_payload(month_key: str | None, author: str) -> dict:
     return {
         "body_parts": list_body_parts(),
         "exercises": list_exercises(),
-        "timeline": list_timeline(),
+        "timeline": list_timeline(author),
         "calendar": month_calendar_payload(month_key),
+        "active_queue": get_active_workout_session(author),
     }
 
 
-def parse_positive_int(value: object, field_name: str, *, minimum: int = 0) -> int:
+def parse_int(value: object, field_name: str, *, minimum: int | None = None) -> int:
     try:
         parsed = int(value)
     except (TypeError, ValueError) as error:
         raise ValueError(f"{field_name} must be a whole number.") from error
-    if parsed < minimum:
+
+    if minimum is not None and parsed < minimum:
         raise ValueError(f"{field_name} must be at least {minimum}.")
+
     return parsed
 
 
 def parse_bool(value: object) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def ensure_owned_session(session_id: int, username: str) -> sqlite3.Row | None:
+    row = get_workout_session_row(session_id)
+    if row is None or row["author"] != username:
+        return None
+    return row
 
 
 def create_app(test_config: dict | None = None) -> Flask:
@@ -583,7 +1005,7 @@ def create_app(test_config: dict | None = None) -> Flask:
     def dashboard():
         month_key = request.args.get("month")
         try:
-            payload = dashboard_payload(month_key)
+            payload = dashboard_payload(month_key, get_current_username())
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
         return jsonify(payload)
@@ -597,6 +1019,11 @@ def create_app(test_config: dict | None = None) -> Flask:
         except ValueError as error:
             return jsonify({"error": str(error)}), 400
         return jsonify(payload)
+
+    @app.get("/api/workout-sessions")
+    @login_required
+    def workout_sessions():
+        return jsonify({"sessions": list_workout_sessions(get_current_username())})
 
     @app.post("/api/body-parts")
     @login_required
@@ -637,28 +1064,26 @@ def create_app(test_config: dict | None = None) -> Flask:
         if not isinstance(raw_entries, list) or not raw_entries:
             return jsonify({"error": "Select at least one exercise before logging."}), 400
 
+        username = get_current_username()
         db = get_db()
         seen_ids: set[int] = set()
         entries: list[dict] = []
+        affected_exercise_ids: set[int] = set()
 
         for raw_entry in raw_entries:
             if not isinstance(raw_entry, dict):
                 return jsonify({"error": "Each workout entry must be an object."}), 400
 
             try:
-                exercise_id = parse_positive_int(
-                    raw_entry.get("exercise_id"),
-                    "Exercise",
-                    minimum=1,
-                )
-                sets = parse_positive_int(raw_entry.get("sets"), "Sets", minimum=1)
-                reps = parse_positive_int(raw_entry.get("reps"), "Reps", minimum=1)
-                weight = parse_positive_int(raw_entry.get("weight"), "Weight", minimum=0)
+                exercise_id = parse_int(raw_entry.get("exercise_id"), "Exercise", minimum=1)
+                sets = parse_int(raw_entry.get("sets"), "Sets", minimum=1)
+                reps = parse_int(raw_entry.get("reps"), "Reps", minimum=1)
+                weight = parse_int(raw_entry.get("weight"), "Weight")
             except ValueError as error:
                 return jsonify({"error": str(error)}), 400
 
             if exercise_id in seen_ids:
-                return jsonify({"error": "Each exercise can only be logged once per workout."}), 400
+                return jsonify({"error": "Each exercise can only be logged once at a time."}), 400
 
             exercise = db.execute(
                 """
@@ -666,9 +1091,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                     exercises.id,
                     exercises.name,
                     exercises.body_part,
-                    body_parts.label AS body_part_label,
-                    exercises.last_weight,
-                    exercises.max_weight
+                    body_parts.label AS body_part_label
                 FROM exercises
                 LEFT JOIN body_parts ON body_parts.id = exercises.body_part
                 WHERE exercises.id = ?
@@ -679,6 +1102,7 @@ def create_app(test_config: dict | None = None) -> Flask:
                 return jsonify({"error": "One of the selected exercises no longer exists."}), 404
 
             seen_ids.add(exercise_id)
+            affected_exercise_ids.add(exercise_id)
             entries.append(
                 {
                     "exercise_id": exercise["id"],
@@ -688,28 +1112,166 @@ def create_app(test_config: dict | None = None) -> Flask:
                     "sets": sets,
                     "reps": reps,
                     "weight": weight,
-                    "is_pr": weight > exercise["max_weight"],
                 }
             )
 
         timestamp = now_utc_iso()
+        active_session = get_active_workout_session_row(username, reference_time=parse_iso(timestamp))
+        session_id = active_session["id"] if active_session is not None else create_workout_session(username, timestamp)
+
         for entry in entries:
             db.execute(
                 """
-                UPDATE exercises
-                SET last_weight = ?, max_weight = MAX(max_weight, ?), updated_at = ?
-                WHERE id = ?
+                INSERT INTO workout_entries (
+                    session_id,
+                    exercise_id,
+                    exercise_name,
+                    body_part,
+                    body_part_label,
+                    sets,
+                    reps,
+                    weight,
+                    is_pr,
+                    created_at,
+                    updated_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)
                 """,
-                (entry["weight"], entry["weight"], timestamp, entry["exercise_id"]),
+                (
+                    session_id,
+                    entry["exercise_id"],
+                    entry["exercise_name"],
+                    entry["body_part"],
+                    entry["body_part_label"],
+                    entry["sets"],
+                    entry["reps"],
+                    entry["weight"],
+                    timestamp,
+                    timestamp,
+                ),
             )
+
+        db.execute(
+            """
+            UPDATE workout_sessions
+            SET last_logged_at = ?, updated_at = ?
+            WHERE id = ?
+            """,
+            (timestamp, timestamp, session_id),
+        )
         db.commit()
 
-        event = create_timeline_event(
-            get_current_username(),
-            "workout",
-            {"entries": entries},
+        recompute_exercise_aggregates(affected_exercise_ids)
+
+        return jsonify(
+            {
+                "session": get_workout_session(session_id, author=username),
+                "active_queue": get_active_workout_session(username),
+                "exercises": list_exercises(),
+                "body_parts": list_body_parts(),
+            }
+        ), 201
+
+    @app.patch("/api/workout-sessions/<int:session_id>")
+    @login_required
+    def update_workout_session(session_id: int):
+        username = get_current_username()
+        session_row = ensure_owned_session(session_id, username)
+        if session_row is None:
+            return jsonify({"error": "Workout session not found."}), 404
+
+        payload = request.get_json(silent=True) or {}
+        raw_entries = payload.get("entries")
+        if not isinstance(raw_entries, list) or not raw_entries:
+            return jsonify({"error": "Provide session entries to update."}), 400
+
+        db = get_db()
+        affected_exercise_ids: set[int] = set()
+
+        existing_rows = db.execute(
+            """
+            SELECT id, exercise_id
+            FROM workout_entries
+            WHERE session_id = ?
+            """,
+            (session_id,),
+        ).fetchall()
+        existing_ids = {row["id"] for row in existing_rows}
+        exercise_by_entry = {row["id"]: row["exercise_id"] for row in existing_rows}
+
+        for raw_entry in raw_entries:
+            if not isinstance(raw_entry, dict):
+                return jsonify({"error": "Each updated entry must be an object."}), 400
+
+            try:
+                entry_id = parse_int(raw_entry.get("id"), "Entry", minimum=1)
+                sets = parse_int(raw_entry.get("sets"), "Sets", minimum=1)
+                reps = parse_int(raw_entry.get("reps"), "Reps", minimum=1)
+                weight = parse_int(raw_entry.get("weight"), "Weight")
+            except ValueError as error:
+                return jsonify({"error": str(error)}), 400
+
+            if entry_id not in existing_ids:
+                return jsonify({"error": "One of the session entries no longer exists."}), 404
+
+            db.execute(
+                """
+                UPDATE workout_entries
+                SET sets = ?, reps = ?, weight = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (sets, reps, weight, now_utc_iso(), entry_id),
+            )
+            if exercise_by_entry[entry_id]:
+                affected_exercise_ids.add(exercise_by_entry[entry_id])
+
+        db.commit()
+        recompute_exercise_aggregates(affected_exercise_ids)
+
+        return jsonify(
+            {
+                "session": get_workout_session(session_id, author=username),
+                "active_queue": get_active_workout_session(username),
+                "exercises": list_exercises(),
+                "body_parts": list_body_parts(),
+            }
         )
-        return jsonify({"event": event, "exercises": list_exercises()}), 201
+
+    @app.delete("/api/workout-entries/<int:entry_id>")
+    @login_required
+    def delete_workout_entry(entry_id: int):
+        username = get_current_username()
+        db = get_db()
+        row = db.execute(
+            """
+            SELECT
+                workout_entries.id,
+                workout_entries.session_id,
+                workout_entries.exercise_id,
+                workout_sessions.author
+            FROM workout_entries
+            JOIN workout_sessions ON workout_sessions.id = workout_entries.session_id
+            WHERE workout_entries.id = ?
+            """,
+            (entry_id,),
+        ).fetchone()
+        if row is None or row["author"] != username:
+            return jsonify({"error": "Workout entry not found."}), 404
+
+        db.execute("DELETE FROM workout_entries WHERE id = ?", (entry_id,))
+        db.commit()
+        sync_workout_session(row["session_id"])
+        if row["exercise_id"]:
+            recompute_exercise_aggregates({row["exercise_id"]})
+
+        return jsonify(
+            {
+                "ok": True,
+                "active_queue": get_active_workout_session(username),
+                "exercises": list_exercises(),
+                "body_parts": list_body_parts(),
+            }
+        )
 
     @app.post("/api/diet/protein-shake")
     @login_required

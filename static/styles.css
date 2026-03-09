@@ -94,6 +94,15 @@ table {
     font-weight: 800;
 }
 
+.body-part-count {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.16rem 0.48rem;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    transition: background 480ms ease, border-color 480ms ease;
+}
+
 .lede,
 .muted,
 .tiny-note,
@@ -478,10 +487,17 @@ table {
 }
 
 .mini-chip.active,
-.nav-pill.active {
+.nav-pill.active,
+.icon-button.active {
     background: var(--teal-soft);
     color: var(--teal);
     border-color: rgba(43, 117, 108, 0.18);
+}
+
+.mini-chip.soft-active {
+    background: rgba(211, 111, 75, 0.14);
+    color: var(--accent-deep);
+    border-color: rgba(211, 111, 75, 0.16);
 }
 
 .primary-button:disabled,
@@ -525,11 +541,28 @@ table {
     gap: 0.45rem;
 }
 
+.timeline-card-tools {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
 .pr-tag {
     padding: 0.16rem 0.42rem;
     border-radius: 999px;
     background: rgba(211, 111, 75, 0.18);
     color: var(--accent-deep);
+    font-size: 0.68rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+}
+
+.queue-tag {
+    padding: 0.16rem 0.42rem;
+    border-radius: 999px;
+    background: rgba(43, 117, 108, 0.14);
+    color: var(--teal);
     font-size: 0.68rem;
     font-weight: 800;
     letter-spacing: 0.06em;
@@ -567,6 +600,25 @@ table {
     border: 1px solid var(--line);
 }
 
+.session-summary-button {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.8rem;
+    width: 100%;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+}
+
+.session-toggle-indicator {
+    font-size: 1.25rem;
+    color: var(--muted);
+    line-height: 1;
+}
+
 .workout-table th,
 .workout-table td {
     padding: 0.75rem 0.8rem;
@@ -576,6 +628,33 @@ table {
 
 .workout-table thead {
     background: rgba(0, 0, 0, 0.03);
+}
+
+.table-exercise-name {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.45rem;
+}
+
+.table-input {
+    width: 76px;
+    border: 1px solid rgba(99, 76, 53, 0.2);
+    border-radius: 12px;
+    background: rgba(255, 255, 255, 0.72);
+    color: var(--ink);
+    padding: 0.42rem 0.55rem;
+}
+
+:root[data-theme="dark"] .table-input {
+    background: rgba(255, 255, 255, 0.06);
+}
+
+.table-action-cell {
+    white-space: nowrap;
+}
+
+.table-delete-button {
+    padding-inline: 0.68rem;
 }
 
 :root[data-theme="dark"] .workout-table thead {
@@ -595,6 +674,10 @@ table {
 .empty-inline,
 .error-banner {
     padding: 0.8rem 0.9rem;
+}
+
+.show-more-button {
+    align-self: center;
 }
 
 .collapsed-preview,
@@ -693,6 +776,21 @@ table {
     max-height: min(85vh, 840px);
     overflow: auto;
     padding-bottom: 1rem;
+}
+
+.queue-modal-content {
+    padding: 1rem;
+}
+
+.queue-summary {
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+    padding: 0 0 1rem;
+}
+
+.archive-list {
+    padding-top: 0;
 }
 
 .management-forms,

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_DIR="/opt/segrada/app"
-VENV_DIR="/opt/segrada/venv"
-BRANCH="${SEGRADA_BRANCH:-main}"
+APP_DIR="/opt/workout/app"
+VENV_DIR="/opt/workout/venv"
+BRANCH="${WORKOUT_BRANCH:-main}"
 
 cd "$APP_DIR"
 git fetch origin "$BRANCH"
@@ -16,12 +16,12 @@ fi
 
 git reset --hard "origin/$BRANCH"
 "$VENV_DIR/bin/pip" install -r requirements.txt
-install -m 644 deploy/segrada.service /etc/systemd/system/segrada.service
-install -m 644 deploy/segrada-update.service /etc/systemd/system/segrada-update.service
-install -m 644 deploy/segrada-update.timer /etc/systemd/system/segrada-update.timer
-install -m 644 deploy/nginx-segrada.conf /etc/nginx/sites-available/segrada
-ln -sf /etc/nginx/sites-available/segrada /etc/nginx/sites-enabled/segrada
+install -m 644 deploy/workout-ledger.service /etc/systemd/system/workout-ledger.service
+install -m 644 deploy/workout-ledger-update.service /etc/systemd/system/workout-ledger-update.service
+install -m 644 deploy/workout-ledger-update.timer /etc/systemd/system/workout-ledger-update.timer
+install -m 644 deploy/nginx-workout.conf /etc/nginx/sites-available/workout-ledger
+ln -sf /etc/nginx/sites-available/workout-ledger /etc/nginx/sites-enabled/workout-ledger
 systemctl daemon-reload
 nginx -t
 systemctl reload nginx
-systemctl restart segrada.service
+systemctl restart workout-ledger.service

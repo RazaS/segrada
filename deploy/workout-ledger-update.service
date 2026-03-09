@@ -1,0 +1,9 @@
+[Unit]
+Description=Update Workout Ledger from Git
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+Environment=WORKOUT_BRANCH=main
+ExecStart=/opt/workout/app/deploy/update_app.sh

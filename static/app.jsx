@@ -119,6 +119,62 @@ function weekdayOffset(year, monthNumber) {
     return new Date(year, monthNumber - 1, 1).getDay();
 }
 
+function createDraftEntry(exercise) {
+    return {
+        exercise_id: exercise.id,
+        sets: 1,
+        reps: 1,
+        weight: exercise.last_weight || 0,
+        chipHints: {
+            sets: "abs:1",
+            reps: "abs:1",
+            weight: "default",
+        },
+        activeChips: {
+            sets: null,
+            reps: null,
+            weight: null,
+        },
+    };
+}
+
+function getVisibleTimelineItems(timeline, visibleWorkoutSessions) {
+    let sessionsShown = 0;
+    const items = [];
+
+    timeline.forEach((item) => {
+        if (item.item_type === "workout_session") {
+            if (sessionsShown >= visibleWorkoutSessions) {
+                return;
+            }
+            sessionsShown += 1;
+        }
+
+        items.push(item);
+    });
+
+    return items;
+}
+
+function getBodyPartCountStyle(lastUsedAt) {
+    if (!lastUsedAt) {
+        return {};
+    }
+
+    const usedAt = new Date(lastUsedAt);
+    const elapsedHours = (Date.now() - usedAt.getTime()) / (1000 * 60 * 60);
+    if (Number.isNaN(elapsedHours) || elapsedHours >= 48) {
+        return {};
+    }
+
+    const strength = Math.max(0, 1 - elapsedHours / 48);
+    const alpha = 0.12 + strength * 0.55;
+    return {
+        backgroundColor: `rgba(255, 205, 163, ${alpha})`,
+        borderColor: `rgba(184, 95, 47, ${0.1 + strength * 0.28})`,
+    };
+}
+
 function LoginScreen({ busy, error, onSubmit }) {
     const [username, setUsername] = useState("raza");
     const [password, setPassword] = useState("");
@@ -172,10 +228,10 @@ function LoginScreen({ busy, error, onSubmit }) {
     );
 }
 
-function IconButton({ label, onClick, disabled, children }) {
+function IconButton({ label, onClick, disabled, active = false, children }) {
     return (
         <button
-            className="icon-button"
+            className={`icon-button ${active ? "active" : ""}`}
             type="button"
             aria-label={label}
             title={label}
@@ -187,14 +243,27 @@ function IconButton({ label, onClick, disabled, children }) {
     );
 }
 
+function chipClassName(buttonKey, activeChipKey, softChipKey) {
+    if (activeChipKey === buttonKey) {
+        return "mini-chip active";
+    }
+    if (softChipKey === buttonKey) {
+        return "mini-chip soft-active";
+    }
+    return "mini-chip";
+}
+
 function MetricControl({
     label,
     value,
-    min,
+    min = null,
     onChange,
     absoluteButtons = [],
     incrementButtons = [],
-    trailingButton = null,
+    activeChipKey = null,
+    softChipKey = null,
+    showDefaultButton = false,
+    onDefault,
 }) {
     return (
         <div className="metric-control">
@@ -202,39 +271,57 @@ function MetricControl({
                 <span>{label}</span>
                 <input
                     type="number"
-                    min={min}
+                    min={min === null ? undefined : min}
                     value={value}
                     onChange={(event) => {
                         const nextValue = Number(event.target.value);
-                        onChange(Number.isNaN(nextValue) ? min : Math.max(min, nextValue));
+                        if (Number.isNaN(nextValue)) {
+                            onChange(min === null ? 0 : min, null);
+                            return;
+                        }
+                        onChange(min === null ? nextValue : Math.max(min, nextValue), null);
                     }}
                 />
             </div>
 
             <div className="metric-actions">
-                {absoluteButtons.map((buttonValue) => (
-                    <button
-                        key={`${label}-abs-${buttonValue}`}
-                        className={`mini-chip ${value === buttonValue ? "active" : ""}`}
-                        type="button"
-                        onClick={() => onChange(buttonValue)}
-                    >
-                        {buttonValue}
-                    </button>
-                ))}
+                {absoluteButtons.map((buttonValue) => {
+                    const buttonKey = `abs:${buttonValue}`;
+                    return (
+                        <button
+                            key={`${label}-abs-${buttonValue}`}
+                            className={chipClassName(buttonKey, activeChipKey, softChipKey)}
+                            type="button"
+                            onClick={() => onChange(buttonValue, buttonKey)}
+                        >
+                            {buttonValue}
+                        </button>
+                    );
+                })}
 
-                {incrementButtons.map((buttonValue) => (
-                    <button
-                        key={`${label}-inc-${buttonValue}`}
-                        className="mini-chip"
-                        type="button"
-                        onClick={() => onChange(value + buttonValue)}
-                    >
-                        +{buttonValue}
-                    </button>
-                ))}
+                {incrementButtons.map((buttonValue) => {
+                    const buttonKey = `inc:${buttonValue}`;
+                    return (
+                        <button
+                            key={`${label}-inc-${buttonValue}`}
+                            className={chipClassName(buttonKey, activeChipKey, softChipKey)}
+                            type="button"
+                            onClick={() => onChange(value + buttonValue, buttonKey)}
+                        >
+                            +{buttonValue}
+                        </button>
+                    );
+                })}
 
-                {trailingButton ? trailingButton : null}
+                {showDefaultButton ? (
+                    <button
+                        className={chipClassName("default", activeChipKey, softChipKey)}
+                        type="button"
+                        onClick={() => onDefault("default")}
+                    >
+                        Default
+                    </button>
+                ) : null}
             </div>
         </div>
     );
@@ -276,7 +363,9 @@ function ExerciseCard({
                         min={1}
                         absoluteButtons={[1, 2, 3, 4, 5]}
                         incrementButtons={[1]}
-                        onChange={(value) => onChangeMetric(exercise.id, "sets", value)}
+                        activeChipKey={draftEntry.activeChips.sets}
+                        softChipKey={draftEntry.activeChips.sets ? null : draftEntry.chipHints.sets}
+                        onChange={(value, chipKey) => onChangeMetric(exercise.id, "sets", value, chipKey)}
                     />
 
                     <MetricControl
@@ -285,30 +374,20 @@ function ExerciseCard({
                         min={1}
                         absoluteButtons={[1, 2, 3, 4, 5]}
                         incrementButtons={[1, 5]}
-                        onChange={(value) => onChangeMetric(exercise.id, "reps", value)}
+                        activeChipKey={draftEntry.activeChips.reps}
+                        softChipKey={draftEntry.activeChips.reps ? null : draftEntry.chipHints.reps}
+                        onChange={(value, chipKey) => onChangeMetric(exercise.id, "reps", value, chipKey)}
                     />
 
                     <MetricControl
                         label="Weight"
                         value={draftEntry.weight}
-                        min={0}
                         incrementButtons={[5, 10, 20]}
-                        trailingButton={
-                            <button
-                                className="mini-chip"
-                                type="button"
-                                onClick={() =>
-                                    onChangeMetric(
-                                        exercise.id,
-                                        "weight",
-                                        exercise.last_weight || 0
-                                    )
-                                }
-                            >
-                                Default
-                            </button>
-                        }
-                        onChange={(value) => onChangeMetric(exercise.id, "weight", value)}
+                        activeChipKey={draftEntry.activeChips.weight}
+                        softChipKey={draftEntry.activeChips.weight ? null : draftEntry.chipHints.weight}
+                        showDefaultButton
+                        onDefault={(chipKey) => onChangeMetric(exercise.id, "weight", exercise.last_weight || 0, chipKey)}
+                        onChange={(value, chipKey) => onChangeMetric(exercise.id, "weight", value, chipKey)}
                     />
                 </div>
             ) : null}
@@ -329,7 +408,9 @@ function BodyPartSection({
         <section className={`body-part-card ${expanded ? "is-open" : ""}`}>
             <button className="body-part-header" type="button" onClick={onToggle}>
                 <div>
-                    <p className="eyebrow">{exercises.length} exercises</p>
+                    <p className="eyebrow body-part-count" style={getBodyPartCountStyle(part.last_used_at)}>
+                        {exercises.length} exercises
+                    </p>
                     <h3>{part.label}</h3>
                 </div>
                 <div className="body-part-meta">
@@ -368,6 +449,7 @@ function QuickPanel({
     draftEntries,
     collapsed,
     loggingWorkout,
+    activeQueue,
     onToggleCollapsed,
     onToggleBodyPart,
     onToggleAllBodyParts,
@@ -376,6 +458,7 @@ function QuickPanel({
     onLogWorkout,
     onClearWorkout,
     onOpenManageExercises,
+    onOpenQueue,
 }) {
     const activeExercises = exercises.filter((exercise) => exercise.is_active);
     const selectedCount = Object.keys(draftEntries).length;
@@ -385,6 +468,7 @@ function QuickPanel({
         exercises: activeExercises.filter((exercise) => exercise.body_part === part.id),
     }));
     const allExpanded = grouped.length > 0 && grouped.every((part) => Boolean(expandedParts[part.id]));
+    const queueCount = activeQueue?.entries?.length || 0;
 
     return (
         <aside className={`panel quick-panel ${collapsed ? "is-collapsed" : ""}`}>
@@ -439,11 +523,14 @@ function QuickPanel({
                     <div className="sticky-summary">
                         <div>
                             <strong>{selectedCount}</strong> exercise
-                            {selectedCount === 1 ? "" : "s"} queued
+                            {selectedCount === 1 ? "" : "s"} ready
                         </div>
                         <div className="summary-actions">
                             <button className="secondary-button compact-button" type="button" onClick={onClearWorkout}>
                                 Clear
+                            </button>
+                            <button className="secondary-button compact-button" type="button" onClick={onOpenQueue}>
+                                Queue {queueCount ? `(${queueCount})` : ""}
                             </button>
                             <button
                                 className="primary-button compact-button"
@@ -461,27 +548,96 @@ function QuickPanel({
     );
 }
 
-function WorkoutTable({ entries }) {
+function WorkoutTable({
+    entries,
+    editable = false,
+    showDelete = false,
+    showLoggedAt = false,
+    onChangeEntry,
+    onDeleteEntry,
+    deleteBusyId = null,
+}) {
     return (
         <div className="table-wrap">
             <table className="workout-table">
                 <thead>
                     <tr>
+                        {showLoggedAt ? <th>Logged</th> : null}
                         <th>Exercise</th>
                         <th>Section</th>
                         <th>Sets</th>
                         <th>Reps</th>
                         <th>Weight</th>
+                        {showDelete ? <th /> : null}
                     </tr>
                 </thead>
                 <tbody>
                     {entries.map((entry) => (
-                        <tr key={`${entry.exercise_id}-${entry.exercise_name}`}>
-                            <td>{entry.exercise_name}</td>
+                        <tr key={entry.id || `${entry.exercise_id}-${entry.created_at || entry.exercise_name}`}>
+                            {showLoggedAt ? <td>{formatTimestamp(entry.created_at)}</td> : null}
+                            <td>
+                                <div className="table-exercise-name">
+                                    {entry.exercise_name}
+                                    {entry.is_pr ? <span className="pr-tag">PR</span> : null}
+                                </div>
+                            </td>
                             <td>{entry.body_part_label}</td>
-                            <td>{entry.sets}</td>
-                            <td>{entry.reps}</td>
-                            <td>{entry.weight}</td>
+                            <td>
+                                {editable ? (
+                                    <input
+                                        className="table-input"
+                                        type="number"
+                                        min="1"
+                                        value={entry.sets}
+                                        onChange={(event) =>
+                                            onChangeEntry(entry.id, "sets", Math.max(1, Number(event.target.value) || 1))
+                                        }
+                                    />
+                                ) : (
+                                    entry.sets
+                                )}
+                            </td>
+                            <td>
+                                {editable ? (
+                                    <input
+                                        className="table-input"
+                                        type="number"
+                                        min="1"
+                                        value={entry.reps}
+                                        onChange={(event) =>
+                                            onChangeEntry(entry.id, "reps", Math.max(1, Number(event.target.value) || 1))
+                                        }
+                                    />
+                                ) : (
+                                    entry.reps
+                                )}
+                            </td>
+                            <td>
+                                {editable ? (
+                                    <input
+                                        className="table-input"
+                                        type="number"
+                                        value={entry.weight}
+                                        onChange={(event) =>
+                                            onChangeEntry(entry.id, "weight", Number(event.target.value) || 0)
+                                        }
+                                    />
+                                ) : (
+                                    entry.weight
+                                )}
+                            </td>
+                            {showDelete ? (
+                                <td className="table-action-cell">
+                                    <button
+                                        className="secondary-button compact-button table-delete-button"
+                                        type="button"
+                                        disabled={deleteBusyId === entry.id}
+                                        onClick={() => onDeleteEntry(entry.id)}
+                                    >
+                                        {deleteBusyId === entry.id ? "Deleting..." : "Delete"}
+                                    </button>
+                                </td>
+                            ) : null}
                         </tr>
                     ))}
                 </tbody>
@@ -490,36 +646,102 @@ function WorkoutTable({ entries }) {
     );
 }
 
-function TimelineEvent({ event }) {
-    if (event.event_type === "workout") {
-        return (
-            <article className="timeline-card workout-event">
-                <div className="timeline-topline">
-                    <div className="timeline-kind-row">
-                        <span className="timeline-kind">Workout</span>
-                        {event.has_pr ? <span className="pr-tag">PR</span> : null}
-                    </div>
-                    <span className="timeline-time">{formatTimestamp(event.created_at)}</span>
-                </div>
-                <div className="timeline-header">
-                    <div>
-                        <h3>{event.author_name}</h3>
-                        <p className="muted">
-                            {event.exercise_count} exercises logged · volume {event.total_volume}
-                        </p>
-                    </div>
-                </div>
-                <WorkoutTable entries={event.entries} />
-            </article>
+function WorkoutSessionCard({ session, onSave, allowEdit = true }) {
+    const [expanded, setExpanded] = useState(false);
+    const [editing, setEditing] = useState(false);
+    const [saving, setSaving] = useState(false);
+    const [draftEntries, setDraftEntries] = useState(session.entries);
+
+    useEffect(() => {
+        setDraftEntries(session.entries);
+    }, [session.id, session.entries]);
+
+    async function handleWrenchClick() {
+        if (!editing) {
+            setExpanded(true);
+            setEditing(true);
+            return;
+        }
+
+        setSaving(true);
+        const saved = await onSave(session.id, draftEntries);
+        setSaving(false);
+        if (saved) {
+            setEditing(false);
+        }
+    }
+
+    function handleChangeEntry(entryId, field, value) {
+        setDraftEntries((current) =>
+            current.map((entry) =>
+                entry.id === entryId
+                    ? {
+                        ...entry,
+                        [field]: value,
+                    }
+                    : entry
+            )
         );
     }
 
-    if (event.event_type === "protein_shake") {
+    return (
+        <article className="timeline-card workout-event">
+            <div className="timeline-topline">
+                <div className="timeline-kind-row">
+                    <span className="timeline-kind">Workout</span>
+                    {session.has_pr ? <span className="pr-tag">PR</span> : null}
+                    {session.is_active_queue ? <span className="queue-tag">Queue</span> : null}
+                </div>
+                <div className="timeline-card-tools">
+                    <span className="timeline-time">{formatTimestamp(session.last_logged_at)}</span>
+                    {allowEdit ? (
+                        <IconButton
+                            label={editing ? "Save workout" : "Edit workout"}
+                            onClick={handleWrenchClick}
+                            disabled={saving}
+                            active={editing}
+                        >
+                            🔧
+                        </IconButton>
+                    ) : null}
+                </div>
+            </div>
+
+            <button className="session-summary-button" type="button" onClick={() => setExpanded((current) => !current)}>
+                <div>
+                    <h3>{session.author_name}</h3>
+                    <p className="muted">
+                        {session.exercise_count} exercises · volume {session.total_volume}
+                        {session.body_parts.length ? ` · ${session.body_parts.join(", ")}` : ""}
+                    </p>
+                </div>
+                <span className="session-toggle-indicator" aria-hidden="true">
+                    {expanded ? "−" : "+"}
+                </span>
+            </button>
+
+            {expanded ? (
+                <WorkoutTable
+                    entries={editing ? draftEntries : session.entries}
+                    editable={editing}
+                    onChangeEntry={handleChangeEntry}
+                />
+            ) : null}
+        </article>
+    );
+}
+
+function TimelineEvent({ item, onSaveSession }) {
+    if (item.item_type === "workout_session") {
+        return <WorkoutSessionCard session={item} onSave={onSaveSession} />;
+    }
+
+    if (item.event_type === "protein_shake") {
         return (
             <article className="timeline-card diet-event">
                 <div className="timeline-topline">
                     <span className="timeline-kind">Diet</span>
-                    <span className="timeline-time">{formatTimestamp(event.created_at)}</span>
+                    <span className="timeline-time">{formatTimestamp(item.created_at)}</span>
                 </div>
                 <h3>Protein shake</h3>
                 <p className="muted">Logged with one tap.</p>
@@ -527,16 +749,16 @@ function TimelineEvent({ event }) {
         );
     }
 
-    if (event.event_type === "meal") {
+    if (item.event_type === "meal") {
         return (
             <article className="timeline-card diet-event">
                 <div className="timeline-topline">
                     <span className="timeline-kind">Diet</span>
-                    <span className="timeline-time">{formatTimestamp(event.created_at)}</span>
+                    <span className="timeline-time">{formatTimestamp(item.created_at)}</span>
                 </div>
                 <h3>Meal eaten</h3>
                 <p className="muted">
-                    High protein: {event.high_protein ? "Yes" : "No"}
+                    High protein: {item.high_protein ? "Yes" : "No"}
                 </p>
             </article>
         );
@@ -550,11 +772,18 @@ function TimelinePanel({
     timeline,
     loading,
     theme,
+    visibleWorkoutSessions,
     onToggleTheme,
     onLogout,
     onRefresh,
+    onSaveSession,
+    onShowMore,
     error,
 }) {
+    const visibleItems = getVisibleTimelineItems(timeline, visibleWorkoutSessions);
+    const totalWorkoutSessions = timeline.filter((item) => item.item_type === "workout_session").length;
+    const showMore = totalWorkoutSessions > visibleWorkoutSessions;
+
     return (
         <main className="panel timeline-panel">
             <div className="panel-header">
@@ -595,9 +824,19 @@ function TimelinePanel({
                     </div>
                 ) : null}
 
-                {timeline.map((event) => (
-                    <TimelineEvent key={`${event.event_type}-${event.id}`} event={event} />
+                {visibleItems.map((item) => (
+                    <TimelineEvent
+                        key={`${item.item_type || item.event_type}-${item.id}`}
+                        item={item}
+                        onSaveSession={onSaveSession}
+                    />
                 ))}
+
+                {showMore ? (
+                    <button className="secondary-button show-more-button" type="button" onClick={onShowMore}>
+                        See more
+                    </button>
+                ) : null}
             </div>
         </main>
     );
@@ -647,7 +886,7 @@ function DietTab({ onProteinShake, onMeal, logging }) {
     );
 }
 
-function CalendarTab({ calendar, onPreviousMonth, onNextMonth, loading }) {
+function CalendarTab({ calendar, onPreviousMonth, onNextMonth, onOpenArchive, loading }) {
     const totalDays = daysInMonth(calendar.year, calendar.month_number);
     const offset = weekdayOffset(calendar.year, calendar.month_number);
     const cells = [];
@@ -676,6 +915,9 @@ function CalendarTab({ calendar, onPreviousMonth, onNextMonth, loading }) {
                     </div>
 
                     <div className="calendar-actions">
+                        <button className="secondary-button compact-button" type="button" onClick={onOpenArchive}>
+                            Archive
+                        </button>
                         <button className="secondary-button compact-button" type="button" onClick={onPreviousMonth} disabled={loading}>
                             Prev
                         </button>
@@ -708,6 +950,7 @@ function BottomPanel({
     onMeal,
     onPreviousMonth,
     onNextMonth,
+    onOpenArchive,
 }) {
     return (
         <section className="panel bottom-panel">
@@ -739,6 +982,7 @@ function BottomPanel({
                     calendar={calendar}
                     onPreviousMonth={onPreviousMonth}
                     onNextMonth={onNextMonth}
+                    onOpenArchive={onOpenArchive}
                     loading={calendarLoading}
                 />
             )}
@@ -968,6 +1212,59 @@ function ExerciseManagementModal({
     );
 }
 
+function QueueModal({ session, deleteBusyId, onDeleteEntry, onClose }) {
+    return (
+        <Modal title="Queue" onClose={onClose}>
+            <div className="queue-modal-content">
+                {!session ? (
+                    <div className="empty-state">No active workout queue yet.</div>
+                ) : (
+                    <>
+                        <div className="queue-summary">
+                            <p className="eyebrow">Current Session</p>
+                            <h3>{session.exercise_count} logged items</h3>
+                            <p className="muted">
+                                Last change {formatTimestamp(session.last_logged_at)}
+                            </p>
+                        </div>
+
+                        <div className="management-list">
+                            <WorkoutTable
+                                entries={session.entries}
+                                showDelete
+                                showLoggedAt
+                                onDeleteEntry={onDeleteEntry}
+                                deleteBusyId={deleteBusyId}
+                            />
+                        </div>
+                    </>
+                )}
+            </div>
+        </Modal>
+    );
+}
+
+function ArchiveModal({ sessions, onClose }) {
+    return (
+        <Modal title="Archive" onClose={onClose}>
+            <div className="management-list archive-list">
+                {sessions.length ? (
+                    sessions.map((session) => (
+                        <WorkoutSessionCard
+                            key={session.id}
+                            session={session}
+                            onSave={async () => true}
+                            allowEdit={false}
+                        />
+                    ))
+                ) : (
+                    <div className="empty-state">No workouts archived yet.</div>
+                )}
+            </div>
+        </Modal>
+    );
+}
+
 function App() {
     const initialMonth = currentMonthKey();
     const [sessionChecked, setSessionChecked] = useState(false);
@@ -975,6 +1272,7 @@ function App() {
     const [bodyParts, setBodyParts] = useState([]);
     const [exercises, setExercises] = useState([]);
     const [timeline, setTimeline] = useState([]);
+    const [activeQueue, setActiveQueue] = useState(null);
     const [calendar, setCalendar] = useState({
         month: initialMonth,
         year: Number(initialMonth.slice(0, 4)),
@@ -995,12 +1293,16 @@ function App() {
     const [expandedParts, setExpandedParts] = useState({});
     const [draftEntries, setDraftEntries] = useState({});
     const [bottomTab, setBottomTab] = useState("diet");
+    const [visibleWorkoutSessions, setVisibleWorkoutSessions] = useState(10);
 
     const [showManageExercises, setShowManageExercises] = useState(false);
+    const [showQueue, setShowQueue] = useState(false);
+    const [showArchive, setShowArchive] = useState(false);
     const [manageError, setManageError] = useState("");
     const [manageBusyId, setManageBusyId] = useState(null);
     const [addExerciseBusy, setAddExerciseBusy] = useState(false);
     const [addSectionBusy, setAddSectionBusy] = useState(false);
+    const [deleteEntryBusyId, setDeleteEntryBusyId] = useState(null);
 
     const calendarMonthRef = useRef(calendar.month);
 
@@ -1034,6 +1336,8 @@ function App() {
             setExercises([]);
             setTimeline([]);
             setDraftEntries({});
+            setActiveQueue(null);
+            setVisibleWorkoutSessions(10);
             return;
         }
 
@@ -1049,6 +1353,7 @@ function App() {
             setExercises(sortExercises(payload.exercises, payload.body_parts));
             setTimeline(payload.timeline);
             setCalendar(payload.calendar);
+            setActiveQueue(payload.active_queue);
         } catch (error) {
             handleApiError(error);
         } finally {
@@ -1089,6 +1394,7 @@ function App() {
                 },
                 body: JSON.stringify({ username, password }),
             });
+            setVisibleWorkoutSessions(10);
             setUser(payload.user);
         } catch (error) {
             setAuthError(error.message);
@@ -1106,6 +1412,8 @@ function App() {
         } finally {
             setUser(null);
             setShowManageExercises(false);
+            setShowQueue(false);
+            setShowArchive(false);
         }
     }
 
@@ -1147,17 +1455,12 @@ function App() {
 
             return {
                 ...current,
-                [exercise.id]: {
-                    exercise_id: exercise.id,
-                    sets: 1,
-                    reps: 1,
-                    weight: exercise.last_weight || 0,
-                },
+                [exercise.id]: createDraftEntry(exercise),
             };
         });
     }
 
-    function changeMetric(exerciseId, field, value) {
+    function changeMetric(exerciseId, field, value, chipKey = null) {
         setDraftEntries((current) => {
             const entry = current[exerciseId];
             if (!entry) {
@@ -1169,13 +1472,22 @@ function App() {
                 [exerciseId]: {
                     ...entry,
                     [field]: value,
+                    activeChips: {
+                        ...entry.activeChips,
+                        [field]: chipKey,
+                    },
                 },
             };
         });
     }
 
     async function logWorkout() {
-        const entries = Object.values(draftEntries);
+        const entries = Object.values(draftEntries).map((entry) => ({
+            exercise_id: entry.exercise_id,
+            sets: entry.sets,
+            reps: entry.reps,
+            weight: entry.weight,
+        }));
         if (!entries.length) {
             setActionError("Select at least one exercise before logging.");
             return;
@@ -1184,17 +1496,15 @@ function App() {
         setLoggingWorkout(true);
         setActionError("");
         try {
-            const payload = await apiFetch("/api/workouts", {
+            await apiFetch("/api/workouts", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ entries }),
             });
-            setTimeline((current) => [payload.event, ...current]);
-            setExercises((current) => sortExercises(payload.exercises, bodyParts.length ? bodyParts : current));
             setDraftEntries({});
-            await loadCalendar(calendarMonthRef.current);
+            await loadDashboard(calendarMonthRef.current);
         } catch (error) {
             handleApiError(error);
         } finally {
@@ -1202,14 +1512,54 @@ function App() {
         }
     }
 
+    async function saveWorkoutSession(sessionId, entries) {
+        setActionError("");
+        try {
+            await apiFetch(`/api/workout-sessions/${sessionId}`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({
+                    entries: entries.map((entry) => ({
+                        id: entry.id,
+                        sets: entry.sets,
+                        reps: entry.reps,
+                        weight: entry.weight,
+                    })),
+                }),
+            });
+            await loadDashboard(calendarMonthRef.current);
+            return true;
+        } catch (error) {
+            handleApiError(error);
+            return false;
+        }
+    }
+
+    async function deleteQueueEntry(entryId) {
+        setDeleteEntryBusyId(entryId);
+        setActionError("");
+        try {
+            await apiFetch(`/api/workout-entries/${entryId}`, {
+                method: "DELETE",
+            });
+            await loadDashboard(calendarMonthRef.current);
+        } catch (error) {
+            handleApiError(error);
+        } finally {
+            setDeleteEntryBusyId(null);
+        }
+    }
+
     async function logProteinShake() {
         setDietLogging(true);
         setActionError("");
         try {
-            const payload = await apiFetch("/api/diet/protein-shake", {
+            await apiFetch("/api/diet/protein-shake", {
                 method: "POST",
             });
-            setTimeline((current) => [payload.event, ...current]);
+            await loadDashboard(calendarMonthRef.current);
         } catch (error) {
             handleApiError(error);
         } finally {
@@ -1221,14 +1571,14 @@ function App() {
         setDietLogging(true);
         setActionError("");
         try {
-            const payload = await apiFetch("/api/diet/meal", {
+            await apiFetch("/api/diet/meal", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
                 body: JSON.stringify({ high_protein: highProtein }),
             });
-            setTimeline((current) => [payload.event, ...current]);
+            await loadDashboard(calendarMonthRef.current);
         } catch (error) {
             handleApiError(error);
         } finally {
@@ -1364,6 +1714,8 @@ function App() {
         );
     }
 
+    const archiveSessions = timeline.filter((item) => item.item_type === "workout_session");
+
     return (
         <>
             <div className={`app-shell ${quickCollapsed ? "quick-collapsed" : ""}`}>
@@ -1374,6 +1726,7 @@ function App() {
                     draftEntries={draftEntries}
                     collapsed={quickCollapsed}
                     loggingWorkout={loggingWorkout}
+                    activeQueue={activeQueue}
                     onToggleCollapsed={() => setQuickCollapsed((current) => !current)}
                     onToggleBodyPart={toggleBodyPart}
                     onToggleAllBodyParts={toggleAllBodyParts}
@@ -1385,6 +1738,7 @@ function App() {
                         setManageError("");
                         setShowManageExercises(true);
                     }}
+                    onOpenQueue={() => setShowQueue(true)}
                 />
 
                 <TimelinePanel
@@ -1392,11 +1746,14 @@ function App() {
                     timeline={timeline}
                     loading={dashboardLoading}
                     theme={theme}
+                    visibleWorkoutSessions={visibleWorkoutSessions}
                     onToggleTheme={() =>
                         setTheme((current) => (current === "dark" ? "light" : "dark"))
                     }
                     onLogout={handleLogout}
                     onRefresh={() => loadDashboard(calendarMonthRef.current)}
+                    onSaveSession={saveWorkoutSession}
+                    onShowMore={() => setVisibleWorkoutSessions((current) => current + 10)}
                     error={actionError}
                 />
 
@@ -1410,6 +1767,10 @@ function App() {
                     onMeal={logMeal}
                     onPreviousMonth={goPreviousMonth}
                     onNextMonth={goNextMonth}
+                    onOpenArchive={() => {
+                        setBottomTab("calendar");
+                        setShowArchive(true);
+                    }}
                 />
             </div>
 
@@ -1434,6 +1795,22 @@ function App() {
                             body_part: bodyPart,
                         })
                     }
+                />
+            ) : null}
+
+            {showQueue ? (
+                <QueueModal
+                    session={activeQueue}
+                    deleteBusyId={deleteEntryBusyId}
+                    onDeleteEntry={deleteQueueEntry}
+                    onClose={() => setShowQueue(false)}
+                />
+            ) : null}
+
+            {showArchive ? (
+                <ArchiveModal
+                    sessions={archiveSessions}
+                    onClose={() => setShowArchive(false)}
                 />
             ) : null}
         </>

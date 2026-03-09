@@ -1,0 +1,14 @@
+[Unit]
+Description=Workout Ledger app
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/workout/app
+ExecStart=/opt/workout/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8021 wsgi:app
+Restart=always
+RestartSec=3
+
+[Install]
+WantedBy=multi-user.target

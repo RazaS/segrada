@@ -1,9 +1,9 @@
 import unittest
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import tempfile
 
-from app import create_app
+from app import create_app, get_db
 
 
 class WorkoutLedgerTests(unittest.TestCase):
@@ -28,6 +28,13 @@ class WorkoutLedgerTests(unittest.TestCase):
             json={"username": username, "password": password},
         )
 
+    def dashboard(self):
+        return self.client.get("/api/dashboard").get_json()
+
+    def exercise_by_name(self, name):
+        exercises = self.dashboard()["exercises"]
+        return next(exercise for exercise in exercises if exercise["name"] == name)
+
     def test_login_sets_persistent_session(self):
         response = self.login()
         self.assertEqual(response.status_code, 200)
@@ -49,20 +56,20 @@ class WorkoutLedgerTests(unittest.TestCase):
         payload = response.get_json()
         self.assertEqual(len(payload["body_parts"]), 7)
         self.assertEqual(len(payload["exercises"]), 21)
+        self.assertIsNone(payload["active_queue"])
         self.assertIn("days_since_used", payload["body_parts"][0])
+        self.assertIn("last_used_at", payload["body_parts"][0])
 
         names = {exercise["name"] for exercise in payload["exercises"]}
         self.assertIn("Hip thrusts", names)
         self.assertIn("Bench press", names)
         self.assertIn("Flexion", names)
 
-    def test_workout_logging_updates_defaults_and_calendar(self):
+    def test_workout_logging_builds_queue_updates_defaults_and_calendar(self):
         self.login()
+        exercises = {exercise["name"]: exercise for exercise in self.dashboard()["exercises"]}
 
-        dashboard = self.client.get("/api/dashboard").get_json()
-        exercises = {exercise["name"]: exercise for exercise in dashboard["exercises"]}
-
-        response = self.client.post(
+        first_response = self.client.post(
             "/api/workouts",
             json={
                 "entries": [
@@ -81,15 +88,32 @@ class WorkoutLedgerTests(unittest.TestCase):
                 ]
             },
         )
-        self.assertEqual(response.status_code, 201)
-        payload = response.get_json()
-        self.assertEqual(payload["event"]["event_type"], "workout")
-        self.assertEqual(payload["event"]["exercise_count"], 2)
-        self.assertTrue(payload["event"]["has_pr"])
-        self.assertTrue(payload["event"]["entries"][0]["is_pr"])
+        self.assertEqual(first_response.status_code, 201)
+        first_payload = first_response.get_json()
+        self.assertEqual(first_payload["session"]["exercise_count"], 2)
+        self.assertTrue(first_payload["session"]["has_pr"])
+        self.assertTrue(first_payload["active_queue"]["is_active_queue"])
+
+        second_response = self.client.post(
+            "/api/workouts",
+            json={
+                "entries": [
+                    {
+                        "exercise_id": exercises["Hip thrusts"]["id"],
+                        "sets": 2,
+                        "reps": 8,
+                        "weight": 170,
+                    }
+                ]
+            },
+        )
+        self.assertEqual(second_response.status_code, 201)
+        second_payload = second_response.get_json()
+        self.assertEqual(second_payload["session"]["id"], first_payload["session"]["id"])
+        self.assertEqual(second_payload["session"]["exercise_count"], 3)
 
         hip_thrusts = next(
-            exercise for exercise in payload["exercises"] if exercise["name"] == "Hip thrusts"
+            exercise for exercise in second_payload["exercises"] if exercise["name"] == "Hip thrusts"
         )
         self.assertEqual(hip_thrusts["last_weight"], 185)
         self.assertEqual(hip_thrusts["max_weight"], 185)
@@ -99,15 +123,113 @@ class WorkoutLedgerTests(unittest.TestCase):
         self.assertEqual(calendar_response.status_code, 200)
         self.assertIn(datetime.now().day, calendar_response.get_json()["workout_days"])
 
-        dashboard_after = self.client.get("/api/dashboard").get_json()
+        dashboard_after = self.dashboard()
         legs = next(part for part in dashboard_after["body_parts"] if part["id"] == "legs")
         self.assertEqual(legs["days_since_used"], 0)
+        self.assertIsNotNone(legs["last_used_at"])
 
-    def test_diet_logs_appear_in_timeline(self):
+    def test_negative_weights_can_be_logged_and_session_can_be_edited(self):
         self.login()
+        pull_ups = self.exercise_by_name("Pull ups")
 
-        shake_response = self.client.post("/api/diet/protein-shake")
-        self.assertEqual(shake_response.status_code, 201)
+        response = self.client.post(
+            "/api/workouts",
+            json={
+                "entries": [
+                    {
+                        "exercise_id": pull_ups["id"],
+                        "sets": 3,
+                        "reps": 6,
+                        "weight": -30,
+                    }
+                ]
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        session = response.get_json()["session"]
+        self.assertEqual(session["entries"][0]["weight"], -30)
+
+        update_response = self.client.patch(
+            f"/api/workout-sessions/{session['id']}",
+            json={
+                "entries": [
+                    {
+                        "id": session["entries"][0]["id"],
+                        "sets": 3,
+                        "reps": 6,
+                        "weight": -25,
+                    }
+                ]
+            },
+        )
+        self.assertEqual(update_response.status_code, 200)
+
+        updated_session = update_response.get_json()["session"]
+        self.assertEqual(updated_session["entries"][0]["weight"], -25)
+        self.assertTrue(updated_session["entries"][0]["is_pr"])
+
+        updated_pull_ups = next(
+            exercise for exercise in update_response.get_json()["exercises"] if exercise["name"] == "Pull ups"
+        )
+        self.assertEqual(updated_pull_ups["last_weight"], -25)
+        self.assertEqual(updated_pull_ups["max_weight"], -25)
+
+    def test_queue_entry_delete_and_archive_endpoint(self):
+        self.login()
+        exercises = {exercise["name"]: exercise for exercise in self.dashboard()["exercises"]}
+
+        response = self.client.post(
+            "/api/workouts",
+            json={
+                "entries": [
+                    {
+                        "exercise_id": exercises["Bench press"]["id"],
+                        "sets": 3,
+                        "reps": 5,
+                        "weight": 185,
+                    },
+                    {
+                        "exercise_id": exercises["Bench flys"]["id"],
+                        "sets": 3,
+                        "reps": 10,
+                        "weight": 40,
+                    },
+                ]
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        session = response.get_json()["session"]
+
+        archive_response = self.client.get("/api/workout-sessions")
+        self.assertEqual(archive_response.status_code, 200)
+        self.assertEqual(len(archive_response.get_json()["sessions"]), 1)
+
+        delete_response = self.client.delete(f"/api/workout-entries/{session['entries'][0]['id']}")
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertEqual(delete_response.get_json()["active_queue"]["exercise_count"], 1)
+
+        archive_after = self.client.get("/api/workout-sessions").get_json()["sessions"]
+        self.assertEqual(len(archive_after), 1)
+        self.assertEqual(archive_after[0]["exercise_count"], 1)
+
+    def test_timeline_keeps_diet_events_and_workout_sessions_separate(self):
+        self.login()
+        hip_thrusts = self.exercise_by_name("Hip thrusts")
+
+        workout_response = self.client.post(
+            "/api/workouts",
+            json={
+                "entries": [
+                    {
+                        "exercise_id": hip_thrusts["id"],
+                        "sets": 4,
+                        "reps": 10,
+                        "weight": 185,
+                    }
+                ]
+            },
+        )
+        self.assertEqual(workout_response.status_code, 201)
 
         meal_response = self.client.post(
             "/api/diet/meal",
@@ -115,54 +237,72 @@ class WorkoutLedgerTests(unittest.TestCase):
         )
         self.assertEqual(meal_response.status_code, 201)
 
-        dashboard = self.client.get("/api/dashboard").get_json()
-        event_types = [event["event_type"] for event in dashboard["timeline"]]
-        self.assertEqual(event_types[:2], ["meal", "protein_shake"])
-        self.assertTrue(dashboard["timeline"][0]["high_protein"])
+        timeline = self.dashboard()["timeline"]
+        self.assertIn("meal", [item.get("event_type") for item in timeline[:2]])
+        self.assertIn("workout_session", [item.get("item_type") for item in timeline[:2]])
+        meal_item = next(item for item in timeline if item.get("event_type") == "meal")
+        self.assertTrue(meal_item["high_protein"])
 
-    def test_custom_section_and_exercise_can_be_added_moved_and_hidden(self):
+    def test_session_grouping_splits_after_six_hours(self):
         self.login()
+        bench_press = self.exercise_by_name("Bench press")
 
-        body_part_response = self.client.post(
-            "/api/body-parts",
-            json={"label": "Cardio"},
+        first_response = self.client.post(
+            "/api/workouts",
+            json={
+                "entries": [
+                    {
+                        "exercise_id": bench_press["id"],
+                        "sets": 3,
+                        "reps": 5,
+                        "weight": 185,
+                    }
+                ]
+            },
         )
-        self.assertEqual(body_part_response.status_code, 201)
-        body_part = body_part_response.get_json()["body_part"]
-        self.assertEqual(body_part["label"], "Cardio")
+        self.assertEqual(first_response.status_code, 201)
+        first_session_id = first_response.get_json()["session"]["id"]
 
-        create_response = self.client.post(
-            "/api/exercises",
-            json={"name": "Cable curls", "body_part": body_part["id"]},
-        )
-        self.assertEqual(create_response.status_code, 201)
-        exercise = create_response.get_json()["exercise"]
-        self.assertTrue(exercise["is_active"])
-        self.assertTrue(exercise["is_custom"])
-        self.assertEqual(exercise["body_part_label"], "Cardio")
+        old_timestamp = (datetime.now(timezone.utc) - timedelta(hours=7)).replace(microsecond=0).isoformat()
+        with self.app.app_context():
+            db = get_db()
+            db.execute(
+                """
+                UPDATE workout_sessions
+                SET started_at = ?, last_logged_at = ?, created_at = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (old_timestamp, old_timestamp, old_timestamp, old_timestamp, first_session_id),
+            )
+            db.execute(
+                """
+                UPDATE workout_entries
+                SET created_at = ?, updated_at = ?
+                WHERE session_id = ?
+                """,
+                (old_timestamp, old_timestamp, first_session_id),
+            )
+            db.commit()
 
-        move_response = self.client.patch(
-            f"/api/exercises/{exercise['id']}",
-            json={"body_part": "arms"},
+        second_response = self.client.post(
+            "/api/workouts",
+            json={
+                "entries": [
+                    {
+                        "exercise_id": bench_press["id"],
+                        "sets": 3,
+                        "reps": 6,
+                        "weight": 175,
+                    }
+                ]
+            },
         )
-        self.assertEqual(move_response.status_code, 200)
-        self.assertEqual(move_response.get_json()["exercise"]["body_part"], "arms")
+        self.assertEqual(second_response.status_code, 201)
+        self.assertNotEqual(second_response.get_json()["session"]["id"], first_session_id)
 
-        hide_response = self.client.patch(
-            f"/api/exercises/{exercise['id']}",
-            json={"is_active": False},
-        )
-        self.assertEqual(hide_response.status_code, 200)
-        self.assertFalse(hide_response.get_json()["exercise"]["is_active"])
-
-        dashboard = self.client.get("/api/dashboard").get_json()
-        labels = {part["label"] for part in dashboard["body_parts"]}
-        self.assertIn("Cardio", labels)
-        stored = next(
-            item for item in dashboard["exercises"] if item["name"] == "Cable curls"
-        )
-        self.assertFalse(stored["is_active"])
-        self.assertEqual(stored["body_part"], "arms")
+        sessions = self.client.get("/api/workout-sessions").get_json()["sessions"]
+        self.assertEqual(len(sessions), 2)
+        self.assertIsNotNone(self.dashboard()["active_queue"])
 
     def test_protected_routes_require_login(self):
         response = self.client.get("/api/dashboard")
