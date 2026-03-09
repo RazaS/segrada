@@ -172,66 +172,6 @@ function LoginScreen({ busy, error, onSubmit }) {
     );
 }
 
-function AppIcon({ children }) {
-    return (
-        <svg
-            className="app-icon"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.8"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden="true"
-        >
-            {children}
-        </svg>
-    );
-}
-
-function SunIcon() {
-    return (
-        <AppIcon>
-            <circle cx="12" cy="12" r="4.5" />
-            <path d="M12 2.5v2.2" />
-            <path d="M12 19.3v2.2" />
-            <path d="M4.9 4.9l1.6 1.6" />
-            <path d="M17.5 17.5l1.6 1.6" />
-            <path d="M2.5 12h2.2" />
-            <path d="M19.3 12h2.2" />
-            <path d="M4.9 19.1l1.6-1.6" />
-            <path d="M17.5 6.5l1.6-1.6" />
-        </AppIcon>
-    );
-}
-
-function MoonIcon() {
-    return (
-        <AppIcon>
-            <path d="M19 14.8A7.8 7.8 0 1 1 9.2 5a6.4 6.4 0 0 0 9.8 9.8Z" />
-        </AppIcon>
-    );
-}
-
-function RefreshIcon() {
-    return (
-        <AppIcon>
-            <path d="M20 11a8 8 0 1 0 2 5.4" />
-            <path d="M20 4v7h-7" />
-        </AppIcon>
-    );
-}
-
-function LogoutIcon() {
-    return (
-        <AppIcon>
-            <path d="M10 4H6.5A2.5 2.5 0 0 0 4 6.5v11A2.5 2.5 0 0 0 6.5 20H10" />
-            <path d="M14 8l6 4-6 4" />
-            <path d="M20 12H9" />
-        </AppIcon>
-    );
-}
-
 function IconButton({ label, onClick, disabled, children }) {
     return (
         <button
@@ -242,7 +182,7 @@ function IconButton({ label, onClick, disabled, children }) {
             onClick={onClick}
             disabled={disabled}
         >
-            {children}
+            <span className="icon-symbol" aria-hidden="true">{children}</span>
         </button>
     );
 }
@@ -387,16 +327,22 @@ function BodyPartSection({
 }) {
     return (
         <section className={`body-part-card ${expanded ? "is-open" : ""}`}>
-            <button className="body-part-header" type="button" onClick={onToggle}>
+            <div className="body-part-header">
                 <div>
                     <p className="eyebrow">{part.label}</p>
                     <h3>{part.label}</h3>
                 </div>
                 <div className="body-part-meta">
                     <span>{exercises.length} exercises</span>
-                    <span>{expanded ? "Collapse" : "Expand"}</span>
+                    <button
+                        className="secondary-button compact-button"
+                        type="button"
+                        onClick={onToggle}
+                    >
+                        {expanded ? "Fold" : "Unfold"}
+                    </button>
                 </div>
-            </button>
+            </div>
 
             {expanded ? (
                 exercises.length ? (
@@ -454,11 +400,11 @@ function QuickPanel({
 
                 <div className="panel-header-actions">
                     <button
-                        className="secondary-button compact-button panel-toggle"
+                        className="secondary-button compact-button panel-toggle menu-toggle-button"
                         type="button"
                         onClick={onToggleCollapsed}
                     >
-                        {collapsed ? "Expand" : "Collapse"}
+                        {collapsed ? "Expand menu" : "Collapse menu"}
                     </button>
                 </div>
             </div>
@@ -627,13 +573,13 @@ function TimelinePanel({
                             label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
                             onClick={onToggleTheme}
                         >
-                            {theme === "dark" ? <SunIcon /> : <MoonIcon />}
+                            {theme === "dark" ? "☀" : "☾"}
                         </IconButton>
                         <IconButton label="Refresh" onClick={onRefresh} disabled={loading}>
-                            <RefreshIcon />
+                            ↻
                         </IconButton>
                         <IconButton label="Log out" onClick={onLogout}>
-                            <LogoutIcon />
+                            ⇥
                         </IconButton>
                     </div>
                 </div>

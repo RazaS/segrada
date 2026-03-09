@@ -264,8 +264,8 @@ table {
 
 .body-part-meta {
     display: flex;
-    flex-direction: column;
-    gap: 0.2rem;
+    align-items: center;
+    gap: 0.55rem;
     color: var(--muted);
     font-size: 0.82rem;
     text-align: right;
@@ -435,11 +435,13 @@ table {
     padding: 0;
     display: grid;
     place-items: center;
+    font-size: 1.05rem;
+    line-height: 1;
 }
 
-.app-icon {
-    width: 1rem;
-    height: 1rem;
+.icon-symbol {
+    display: inline-block;
+    transform: translateY(-0.02rem);
 }
 
 .mini-chip {
@@ -470,6 +472,18 @@ table {
 
 .panel-toggle {
     min-width: 88px;
+}
+
+.menu-toggle-button {
+    background: rgba(211, 111, 75, 0.16);
+    color: var(--accent-deep);
+    border: 1px solid rgba(211, 111, 75, 0.22);
+}
+
+:root[data-theme="dark"] .menu-toggle-button {
+    background: rgba(239, 148, 108, 0.18);
+    color: var(--accent-deep);
+    border-color: rgba(239, 148, 108, 0.25);
 }
 
 .timeline-list {
@@ -783,6 +797,10 @@ table {
 
     .management-select {
         min-width: 0;
+    }
+
+    .body-part-meta {
+        justify-content: space-between;
     }
 }
 
