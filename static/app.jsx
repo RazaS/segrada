@@ -851,9 +851,15 @@ function ExerciseManagementModal({
                         </select>
                     </label>
 
-                    <button className="primary-button compact-button" type="submit" disabled={addExerciseBusy}>
-                        {addExerciseBusy ? "Saving..." : "Add exercise"}
-                    </button>
+                    <div className="management-form-actions">
+                        <button
+                            className="primary-button compact-button management-primary-button"
+                            type="submit"
+                            disabled={addExerciseBusy}
+                        >
+                            {addExerciseBusy ? "Saving..." : "Add exercise"}
+                        </button>
+                    </div>
                 </form>
 
                 <form className="management-form-card" onSubmit={handleAddSection}>
