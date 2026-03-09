@@ -1237,6 +1237,41 @@ def create_app(test_config: dict | None = None) -> Flask:
             }
         )
 
+    @app.delete("/api/workout-sessions/<int:session_id>")
+    @login_required
+    def delete_workout_session(session_id: int):
+        username = get_current_username()
+        session_row = ensure_owned_session(session_id, username)
+        if session_row is None:
+            return jsonify({"error": "Workout session not found."}), 404
+
+        db = get_db()
+        exercise_rows = db.execute(
+            """
+            SELECT DISTINCT exercise_id
+            FROM workout_entries
+            WHERE session_id = ? AND exercise_id IS NOT NULL
+            """,
+            (session_id,),
+        ).fetchall()
+        affected_exercise_ids = {
+            row["exercise_id"] for row in exercise_rows if row["exercise_id"] is not None
+        }
+
+        db.execute("DELETE FROM workout_sessions WHERE id = ?", (session_id,))
+        db.commit()
+
+        recompute_exercise_aggregates(affected_exercise_ids)
+
+        return jsonify(
+            {
+                "ok": True,
+                "active_queue": get_active_workout_session(username),
+                "exercises": list_exercises(),
+                "body_parts": list_body_parts(),
+            }
+        )
+
     @app.delete("/api/workout-entries/<int:entry_id>")
     @login_required
     def delete_workout_entry(entry_id: int):

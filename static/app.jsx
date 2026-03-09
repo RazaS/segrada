@@ -646,7 +646,7 @@ function WorkoutTable({
     );
 }
 
-function WorkoutSessionCard({ session, onSave, allowEdit = true }) {
+function WorkoutSessionCard({ session, onSave, onDelete, deleteBusy = false, allowEdit = true }) {
     const [expanded, setExpanded] = useState(false);
     const [editing, setEditing] = useState(false);
     const [saving, setSaving] = useState(false);
@@ -695,14 +695,23 @@ function WorkoutSessionCard({ session, onSave, allowEdit = true }) {
                 <div className="timeline-card-tools">
                     <span className="timeline-time">{formatTimestamp(session.last_logged_at)}</span>
                     {allowEdit ? (
-                        <IconButton
-                            label={editing ? "Save workout" : "Edit workout"}
-                            onClick={handleWrenchClick}
-                            disabled={saving}
-                            active={editing}
-                        >
-                            🔧
-                        </IconButton>
+                        <>
+                            <IconButton
+                                label={editing ? "Save workout" : "Edit workout"}
+                                onClick={handleWrenchClick}
+                                disabled={saving || deleteBusy}
+                                active={editing}
+                            >
+                                🔧
+                            </IconButton>
+                            <IconButton
+                                label="Delete workout"
+                                onClick={() => onDelete(session.id)}
+                                disabled={saving || deleteBusy}
+                            >
+                                🗑
+                            </IconButton>
+                        </>
                     ) : null}
                 </div>
             </div>
@@ -731,9 +740,16 @@ function WorkoutSessionCard({ session, onSave, allowEdit = true }) {
     );
 }
 
-function TimelineEvent({ item, onSaveSession }) {
+function TimelineEvent({ item, onSaveSession, onDeleteSession, deleteBusyId }) {
     if (item.item_type === "workout_session") {
-        return <WorkoutSessionCard session={item} onSave={onSaveSession} />;
+        return (
+            <WorkoutSessionCard
+                session={item}
+                onSave={onSaveSession}
+                onDelete={onDeleteSession}
+                deleteBusy={deleteBusyId === item.id}
+            />
+        );
     }
 
     if (item.event_type === "protein_shake") {
@@ -777,6 +793,8 @@ function TimelinePanel({
     onLogout,
     onRefresh,
     onSaveSession,
+    onDeleteSession,
+    deleteBusyId,
     onShowMore,
     error,
 }) {
@@ -829,6 +847,8 @@ function TimelinePanel({
                         key={`${item.item_type || item.event_type}-${item.id}`}
                         item={item}
                         onSaveSession={onSaveSession}
+                        onDeleteSession={onDeleteSession}
+                        deleteBusyId={deleteBusyId}
                     />
                 ))}
 
@@ -1303,6 +1323,7 @@ function App() {
     const [addExerciseBusy, setAddExerciseBusy] = useState(false);
     const [addSectionBusy, setAddSectionBusy] = useState(false);
     const [deleteEntryBusyId, setDeleteEntryBusyId] = useState(null);
+    const [deleteSessionBusyId, setDeleteSessionBusyId] = useState(null);
 
     const calendarMonthRef = useRef(calendar.month);
 
@@ -1552,6 +1573,21 @@ function App() {
         }
     }
 
+    async function deleteWorkoutSession(sessionId) {
+        setDeleteSessionBusyId(sessionId);
+        setActionError("");
+        try {
+            await apiFetch(`/api/workout-sessions/${sessionId}`, {
+                method: "DELETE",
+            });
+            await loadDashboard(calendarMonthRef.current);
+        } catch (error) {
+            handleApiError(error);
+        } finally {
+            setDeleteSessionBusyId(null);
+        }
+    }
+
     async function logProteinShake() {
         setDietLogging(true);
         setActionError("");
@@ -1753,6 +1789,8 @@ function App() {
                     onLogout={handleLogout}
                     onRefresh={() => loadDashboard(calendarMonthRef.current)}
                     onSaveSession={saveWorkoutSession}
+                    onDeleteSession={deleteWorkoutSession}
+                    deleteBusyId={deleteSessionBusyId}
                     onShowMore={() => setVisibleWorkoutSessions((current) => current + 10)}
                     error={actionError}
                 />

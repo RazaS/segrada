@@ -212,6 +212,38 @@ class WorkoutLedgerTests(unittest.TestCase):
         self.assertEqual(len(archive_after), 1)
         self.assertEqual(archive_after[0]["exercise_count"], 1)
 
+    def test_whole_workout_session_can_be_deleted(self):
+        self.login()
+        bench_press = self.exercise_by_name("Bench press")
+
+        response = self.client.post(
+            "/api/workouts",
+            json={
+                "entries": [
+                    {
+                        "exercise_id": bench_press["id"],
+                        "sets": 3,
+                        "reps": 5,
+                        "weight": 185,
+                    }
+                ]
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        session = response.get_json()["session"]
+
+        delete_response = self.client.delete(f"/api/workout-sessions/{session['id']}")
+        self.assertEqual(delete_response.status_code, 200)
+        self.assertTrue(delete_response.get_json()["ok"])
+        self.assertIsNone(delete_response.get_json()["active_queue"])
+
+        sessions = self.client.get("/api/workout-sessions").get_json()["sessions"]
+        self.assertEqual(sessions, [])
+
+        bench_press_after = self.exercise_by_name("Bench press")
+        self.assertEqual(bench_press_after["last_weight"], 0)
+        self.assertEqual(bench_press_after["max_weight"], 0)
+
     def test_timeline_keeps_diet_events_and_workout_sessions_separate(self):
         self.login()
         hip_thrusts = self.exercise_by_name("Hip thrusts")
