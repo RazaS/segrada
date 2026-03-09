@@ -5,5 +5,5 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-Environment=SEGRADA_BRANCH=main
+Environment=SEGRADA_BRANCH=codex/segrada-classic
 ExecStart=/opt/segrada/app/deploy/update_app.sh
