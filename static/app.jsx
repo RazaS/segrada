@@ -334,7 +334,7 @@ function BodyPartSection({
                 </div>
                 <div className="body-part-meta">
                     <span>{exercises.length} exercises</span>
-                    <span>{expanded ? "Collapse" : "Expand"}</span>
+                    <span aria-hidden="true">{expanded ? "−" : "+"}</span>
                 </div>
             </button>
 
@@ -368,8 +368,7 @@ function QuickPanel({
     loggingWorkout,
     onToggleCollapsed,
     onToggleBodyPart,
-    onExpandAll,
-    onCollapseAll,
+    onToggleAllBodyParts,
     onToggleExercise,
     onChangeMetric,
     onLogWorkout,
@@ -383,6 +382,7 @@ function QuickPanel({
         ...part,
         exercises: activeExercises.filter((exercise) => exercise.body_part === part.id),
     }));
+    const allExpanded = grouped.length > 0 && grouped.every((part) => Boolean(expandedParts[part.id]));
 
     return (
         <aside className={`panel quick-panel ${collapsed ? "is-collapsed" : ""}`}>
@@ -410,11 +410,8 @@ function QuickPanel({
             ) : (
                 <>
                     <div className="builder-toolbar">
-                        <button className="secondary-button compact-button" type="button" onClick={onExpandAll}>
-                            Unfold
-                        </button>
-                        <button className="secondary-button compact-button" type="button" onClick={onCollapseAll}>
-                            Fold
+                        <button className="secondary-button compact-button" type="button" onClick={onToggleAllBodyParts}>
+                            {allExpanded ? "Fold" : "Unfold"}
                         </button>
                         <button className="secondary-button compact-button" type="button" onClick={onOpenManageExercises}>
                             Exercises
@@ -1125,6 +1122,15 @@ function App() {
         setExpandedParts({});
     }
 
+    function toggleAllBodyParts() {
+        const allExpanded = bodyParts.length > 0 && bodyParts.every((part) => Boolean(expandedParts[part.id]));
+        if (allExpanded) {
+            collapseAll();
+            return;
+        }
+        expandAll();
+    }
+
     function toggleExercise(exercise) {
         setDraftEntries((current) => {
             if (current[exercise.id]) {
@@ -1364,8 +1370,7 @@ function App() {
                     loggingWorkout={loggingWorkout}
                     onToggleCollapsed={() => setQuickCollapsed((current) => !current)}
                     onToggleBodyPart={toggleBodyPart}
-                    onExpandAll={expandAll}
-                    onCollapseAll={collapseAll}
+                    onToggleAllBodyParts={toggleAllBodyParts}
                     onToggleExercise={toggleExercise}
                     onChangeMetric={changeMetric}
                     onLogWorkout={logWorkout}

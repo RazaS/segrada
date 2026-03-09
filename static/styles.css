@@ -119,7 +119,7 @@ table {
 }
 
 .app-shell.quick-collapsed {
-    grid-template-columns: 120px minmax(0, 1fr);
+    grid-template-columns: 180px minmax(0, 1fr);
 }
 
 .panel,
@@ -475,15 +475,33 @@ table {
 }
 
 .menu-toggle-button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
     background: rgba(211, 111, 75, 0.16);
     color: var(--accent-deep);
     border: 1px solid rgba(211, 111, 75, 0.22);
+    white-space: nowrap;
 }
 
 :root[data-theme="dark"] .menu-toggle-button {
     background: rgba(239, 148, 108, 0.18);
     color: var(--accent-deep);
     border-color: rgba(239, 148, 108, 0.25);
+}
+
+.quick-panel.is-collapsed .panel-header {
+    flex-direction: column;
+    align-items: stretch;
+}
+
+.quick-panel.is-collapsed .panel-header-actions {
+    width: 100%;
+}
+
+.quick-panel.is-collapsed .menu-toggle-button {
+    width: 100%;
+    justify-content: center;
 }
 
 .timeline-list {
