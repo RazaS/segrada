@@ -319,8 +319,12 @@ def init_db() -> None:
     db.commit()
     columns = {row["name"] for row in db.execute("PRAGMA table_info(exercises)").fetchall()}
     if "max_weight" not in columns:
-        db.execute("ALTER TABLE exercises ADD COLUMN max_weight INTEGER NOT NULL DEFAULT 0")
-        db.commit()
+        try:
+            db.execute("ALTER TABLE exercises ADD COLUMN max_weight INTEGER NOT NULL DEFAULT 0")
+            db.commit()
+        except sqlite3.OperationalError as error:
+            if "duplicate column name" not in str(error).lower():
+                raise
     seed_body_parts()
     seed_exercises()
 
