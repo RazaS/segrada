@@ -243,6 +243,53 @@ function IconButton({ label, onClick, disabled, active = false, children }) {
     );
 }
 
+function NumericInput({ value, min = null, className, onCommit }) {
+    const [draft, setDraft] = useState(String(value));
+
+    useEffect(() => {
+        setDraft(String(value));
+    }, [value]);
+
+    function normalize(rawValue) {
+        if (rawValue === "" || rawValue === "-") {
+            return null;
+        }
+
+        const parsed = Number(rawValue);
+        if (Number.isNaN(parsed)) {
+            return null;
+        }
+
+        return min === null ? parsed : Math.max(min, parsed);
+    }
+
+    return (
+        <input
+            className={className}
+            type="number"
+            min={min === null ? undefined : min}
+            value={draft}
+            onChange={(event) => {
+                const rawValue = event.target.value;
+                setDraft(rawValue);
+                const normalized = normalize(rawValue);
+                if (normalized !== null) {
+                    onCommit(normalized);
+                }
+            }}
+            onBlur={() => {
+                const normalized = normalize(draft);
+                if (normalized === null) {
+                    setDraft(String(value));
+                    return;
+                }
+                onCommit(normalized);
+                setDraft(String(normalized));
+            }}
+        />
+    );
+}
+
 function chipClassName(buttonKey, activeChipKey, softChipKey) {
     if (activeChipKey === buttonKey) {
         return "mini-chip active";
@@ -269,18 +316,11 @@ function MetricControl({
         <div className="metric-control">
             <div className="metric-header">
                 <span>{label}</span>
-                <input
-                    type="number"
-                    min={min === null ? undefined : min}
+                <NumericInput
+                    className="metric-input"
                     value={value}
-                    onChange={(event) => {
-                        const nextValue = Number(event.target.value);
-                        if (Number.isNaN(nextValue)) {
-                            onChange(min === null ? 0 : min, null);
-                            return;
-                        }
-                        onChange(min === null ? nextValue : Math.max(min, nextValue), null);
-                    }}
+                    min={min}
+                    onCommit={(nextValue) => onChange(nextValue, null)}
                 />
             </div>
 
@@ -586,14 +626,11 @@ function WorkoutTable({
                             <td>{entry.body_part_label}</td>
                             <td>
                                 {editable ? (
-                                    <input
+                                    <NumericInput
                                         className="table-input"
-                                        type="number"
-                                        min="1"
                                         value={entry.sets}
-                                        onChange={(event) =>
-                                            onChangeEntry(entry.id, "sets", Math.max(1, Number(event.target.value) || 1))
-                                        }
+                                        min={1}
+                                        onCommit={(nextValue) => onChangeEntry(entry.id, "sets", nextValue)}
                                     />
                                 ) : (
                                     entry.sets
@@ -601,14 +638,11 @@ function WorkoutTable({
                             </td>
                             <td>
                                 {editable ? (
-                                    <input
+                                    <NumericInput
                                         className="table-input"
-                                        type="number"
-                                        min="1"
                                         value={entry.reps}
-                                        onChange={(event) =>
-                                            onChangeEntry(entry.id, "reps", Math.max(1, Number(event.target.value) || 1))
-                                        }
+                                        min={1}
+                                        onCommit={(nextValue) => onChangeEntry(entry.id, "reps", nextValue)}
                                     />
                                 ) : (
                                     entry.reps
@@ -616,13 +650,10 @@ function WorkoutTable({
                             </td>
                             <td>
                                 {editable ? (
-                                    <input
+                                    <NumericInput
                                         className="table-input"
-                                        type="number"
                                         value={entry.weight}
-                                        onChange={(event) =>
-                                            onChangeEntry(entry.id, "weight", Number(event.target.value) || 0)
-                                        }
+                                        onCommit={(nextValue) => onChangeEntry(entry.id, "weight", nextValue)}
                                     />
                                 ) : (
                                     entry.weight
