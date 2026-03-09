@@ -1,12 +1,11 @@
 [Unit]
-Description=Segrada pet timeline
+Description=Workout Ledger app
 After=network.target
 
 [Service]
 Type=simple
 User=root
 WorkingDirectory=/opt/segrada/app
-EnvironmentFile=/etc/segrada.env
 ExecStart=/opt/segrada/venv/bin/gunicorn --workers 2 --bind 127.0.0.1:8020 wsgi:app
 Restart=always
 RestartSec=3

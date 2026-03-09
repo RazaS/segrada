@@ -1,5 +1,5 @@
 [Unit]
-Description=Update Segrada from Git
+Description=Update Workout Ledger from Git
 After=network-online.target
 Wants=network-online.target
 

@@ -1,26 +1,20 @@
-import io
-import tempfile
 import unittest
+from datetime import datetime
 from pathlib import Path
-
-from PIL import Image
+import tempfile
 
 from app import create_app
 
 
-class PetTimelineAppTests(unittest.TestCase):
+class WorkoutLedgerTests(unittest.TestCase):
     def setUp(self):
         self.temp_dir = tempfile.TemporaryDirectory()
         temp_path = Path(self.temp_dir.name)
-
         self.app = create_app(
             {
                 "TESTING": True,
                 "SECRET_KEY": "test-secret",
                 "DATABASE": str(temp_path / "test.db"),
-                "UPLOAD_FOLDER": str(temp_path / "uploads"),
-                "WEATHER_CACHE_SECONDS": 0,
-                "MAX_IMAGE_DIMENSION": 1200,
             }
         )
         self.client = self.app.test_client()
@@ -28,7 +22,7 @@ class PetTimelineAppTests(unittest.TestCase):
     def tearDown(self):
         self.temp_dir.cleanup()
 
-    def login(self, username="victoria", password="sashakitty"):
+    def login(self, username="raza", password="password"):
         return self.client.post(
             "/api/login",
             json={"username": username, "password": password},
@@ -37,8 +31,7 @@ class PetTimelineAppTests(unittest.TestCase):
     def test_login_sets_persistent_session(self):
         response = self.login()
         self.assertEqual(response.status_code, 200)
-        payload = response.get_json()
-        self.assertEqual(payload["user"]["username"], "victoria")
+        self.assertEqual(response.get_json()["user"]["username"], "raza")
         self.assertIn("Expires=", response.headers.get("Set-Cookie", ""))
 
         with self.client.session_transaction() as session_state:
@@ -48,176 +41,105 @@ class PetTimelineAppTests(unittest.TestCase):
         self.assertEqual(session_response.status_code, 200)
         self.assertTrue(session_response.get_json()["authenticated"])
 
-    def test_logout_clears_remembered_login(self):
+    def test_dashboard_has_seeded_exercises(self):
         self.login()
 
-        logout_response = self.client.post("/api/logout")
-        self.assertEqual(logout_response.status_code, 200)
+        response = self.client.get("/api/dashboard?month=2026-03")
+        self.assertEqual(response.status_code, 200)
+        payload = response.get_json()
+        self.assertEqual(len(payload["body_parts"]), 7)
+        self.assertEqual(len(payload["exercises"]), 21)
 
-        session_response = self.client.get("/api/session")
-        self.assertEqual(session_response.status_code, 200)
-        self.assertFalse(session_response.get_json()["authenticated"])
+        names = {exercise["name"] for exercise in payload["exercises"]}
+        self.assertIn("Hip thrusts", names)
+        self.assertIn("Bench press", names)
+        self.assertIn("Flexion", names)
 
-    def test_create_edit_and_delete_post_with_photo(self):
+    def test_workout_logging_updates_defaults_and_calendar(self):
         self.login()
 
-        source_image = io.BytesIO()
-        Image.new("RGB", (2400, 1800), color=(120, 160, 200)).save(
-            source_image,
-            format="JPEG",
+        dashboard = self.client.get("/api/dashboard").get_json()
+        exercises = {exercise["name"]: exercise for exercise in dashboard["exercises"]}
+
+        response = self.client.post(
+            "/api/workouts",
+            json={
+                "entries": [
+                    {
+                        "exercise_id": exercises["Hip thrusts"]["id"],
+                        "sets": 4,
+                        "reps": 10,
+                        "weight": 185,
+                    },
+                    {
+                        "exercise_id": exercises["Smith squats"]["id"],
+                        "sets": 3,
+                        "reps": 8,
+                        "weight": 135,
+                    },
+                ]
+            },
         )
-        source_image.seek(0)
+        self.assertEqual(response.status_code, 201)
+        payload = response.get_json()
+        self.assertEqual(payload["event"]["event_type"], "workout")
+        self.assertEqual(payload["event"]["exercise_count"], 2)
+
+        hip_thrusts = next(
+            exercise for exercise in payload["exercises"] if exercise["name"] == "Hip thrusts"
+        )
+        self.assertEqual(hip_thrusts["last_weight"], 185)
+
+        month_key = datetime.now().strftime("%Y-%m")
+        calendar_response = self.client.get(f"/api/calendar?month={month_key}")
+        self.assertEqual(calendar_response.status_code, 200)
+        self.assertIn(datetime.now().day, calendar_response.get_json()["workout_days"])
+
+    def test_diet_logs_appear_in_timeline(self):
+        self.login()
+
+        shake_response = self.client.post("/api/diet/protein-shake")
+        self.assertEqual(shake_response.status_code, 201)
+
+        meal_response = self.client.post(
+            "/api/diet/meal",
+            json={"high_protein": True},
+        )
+        self.assertEqual(meal_response.status_code, 201)
+
+        dashboard = self.client.get("/api/dashboard").get_json()
+        event_types = [event["event_type"] for event in dashboard["timeline"]]
+        self.assertEqual(event_types[:2], ["meal", "protein_shake"])
+        self.assertTrue(dashboard["timeline"][0]["high_protein"])
+
+    def test_custom_exercise_can_be_added_and_hidden(self):
+        self.login()
 
         create_response = self.client.post(
-            "/api/posts",
-            data={
-                "content": "Poppy did a dramatic flop.",
-                "photo": (source_image, "poppy.jpg"),
-            },
-            content_type="multipart/form-data",
+            "/api/exercises",
+            json={"name": "Cable curls", "body_part": "arms"},
         )
         self.assertEqual(create_response.status_code, 201)
-        created_post = create_response.get_json()["post"]
-        self.assertEqual(created_post["author"], "victoria")
-        self.assertIsNotNone(created_post["image_url"])
+        exercise = create_response.get_json()["exercise"]
+        self.assertTrue(exercise["is_active"])
+        self.assertTrue(exercise["is_custom"])
 
-        stored_name = created_post["image_url"].split("/")[-1]
-        stored_path = Path(self.app.config["UPLOAD_FOLDER"]) / stored_name
-        self.assertTrue(stored_path.exists())
-        with Image.open(stored_path) as stored_image:
-            width, height = stored_image.size
-        self.assertLessEqual(max(width, height), self.app.config["MAX_IMAGE_DIMENSION"])
-
-        update_response = self.client.put(
-            f"/api/posts/{created_post['id']}",
-            data={
-                "content": "Poppy did a dramatic flop on the blanket.",
-                "removePhoto": "true",
-            },
-            content_type="multipart/form-data",
+        hide_response = self.client.patch(
+            f"/api/exercises/{exercise['id']}",
+            json={"is_active": False},
         )
-        self.assertEqual(update_response.status_code, 200)
-        updated_post = update_response.get_json()["post"]
-        self.assertIsNone(updated_post["image_url"])
-        self.assertFalse(stored_path.exists())
+        self.assertEqual(hide_response.status_code, 200)
+        self.assertFalse(hide_response.get_json()["exercise"]["is_active"])
 
-        delete_response = self.client.delete(f"/api/posts/{created_post['id']}")
-        self.assertEqual(delete_response.status_code, 200)
-
-        posts_response = self.client.get("/api/posts")
-        self.assertEqual(posts_response.status_code, 200)
-        self.assertEqual(posts_response.get_json()["posts"], [])
-
-    def test_quick_log_updates_task_status_and_owner_permissions(self):
-        self.login()
-
-        quick_log_response = self.client.post(
-            "/api/quick-log",
-            json={"task": "feed", "notes": "Breakfast served."},
+        dashboard = self.client.get("/api/dashboard").get_json()
+        stored = next(
+            item for item in dashboard["exercises"] if item["name"] == "Cable curls"
         )
-        self.assertEqual(quick_log_response.status_code, 201)
-        created_post = quick_log_response.get_json()["post"]
-        self.assertEqual(created_post["task_type"], "feed")
+        self.assertFalse(stored["is_active"])
 
-        task_response = self.client.get("/api/tasks")
-        self.assertEqual(task_response.status_code, 200)
-        feed_task = next(
-            task
-            for task in task_response.get_json()["tasks"]
-            if task["id"] == "feed"
-        )
-        self.assertIsNotNone(feed_task["last_completed_at"])
-
-        self.client.post("/api/logout")
-        self.login(username="raza", password="kojikitty")
-
-        forbidden_response = self.client.delete(f"/api/posts/{created_post['id']}")
-        self.assertEqual(forbidden_response.status_code, 403)
-
-    def test_posts_persist_across_clients_and_uploads_require_login(self):
-        first_client = self.app.test_client()
-        second_client = self.app.test_client()
-        anonymous_client = self.app.test_client()
-
-        login_response = first_client.post(
-            "/api/login",
-            json={"username": "victoria", "password": "sashakitty"},
-        )
-        self.assertEqual(login_response.status_code, 200)
-
-        source_image = io.BytesIO()
-        Image.new("RGB", (1800, 1200), color=(80, 120, 190)).save(
-            source_image,
-            format="JPEG",
-        )
-        source_image.seek(0)
-
-        create_response = first_client.post(
-            "/api/posts",
-            data={
-                "content": "Shared across clients.",
-                "photo": (source_image, "shared.jpg"),
-            },
-            content_type="multipart/form-data",
-        )
-        self.assertEqual(create_response.status_code, 201)
-        created_post = create_response.get_json()["post"]
-
-        second_login = second_client.post(
-            "/api/login",
-            json={"username": "raza", "password": "kojikitty"},
-        )
-        self.assertEqual(second_login.status_code, 200)
-
-        shared_feed_response = second_client.get("/api/posts")
-        self.assertEqual(shared_feed_response.status_code, 200)
-        posts = shared_feed_response.get_json()["posts"]
-        self.assertEqual(len(posts), 1)
-        self.assertEqual(posts[0]["content"], "Shared across clients.")
-
-        image_url = created_post["image_url"]
-        anonymous_image_response = anonymous_client.get(image_url)
-        self.assertEqual(anonymous_image_response.status_code, 401)
-        anonymous_image_response.close()
-
-        authenticated_image_response = second_client.get(image_url)
-        self.assertEqual(authenticated_image_response.status_code, 200)
-        authenticated_image_response.close()
-
-    def test_large_upload_returns_json_error(self):
-        limited_app = create_app(
-            {
-                "TESTING": True,
-                "SECRET_KEY": "test-secret",
-                "DATABASE": str(Path(self.temp_dir.name) / "limit-test.db"),
-                "UPLOAD_FOLDER": str(Path(self.temp_dir.name) / "limit-uploads"),
-                "MAX_CONTENT_LENGTH": 1024,
-            }
-        )
-        client = limited_app.test_client()
-        client.post(
-            "/api/login",
-            json={"username": "victoria", "password": "sashakitty"},
-        )
-
-        source_image = io.BytesIO()
-        Image.new("RGB", (1000, 1000), color=(200, 120, 120)).save(
-            source_image,
-            format="JPEG",
-            quality=95,
-        )
-        source_image.seek(0)
-
-        response = client.post(
-            "/api/posts",
-            data={
-                "content": "too big",
-                "photo": (source_image, "too-big.jpg"),
-            },
-            content_type="multipart/form-data",
-        )
-        self.assertEqual(response.status_code, 413)
-        self.assertIn("under 1 KB", response.get_json()["error"])
+    def test_protected_routes_require_login(self):
+        response = self.client.get("/api/dashboard")
+        self.assertEqual(response.status_code, 401)
 
 
 if __name__ == "__main__":

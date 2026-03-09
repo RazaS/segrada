@@ -1,39 +1,31 @@
-# Pet Timeline
+# Workout Ledger
 
-A small Flask + React app for logging pet updates in a shared household timeline.
+A small Flask + React workout logging app with persistent login, quick workout entry, diet taps, custom exercise management, light/dark mode, and a calendar that marks workout days.
 
 ## Features
 
-- Login screen with the two requested users:
-  - `victoria` / `sashakitty`
-  - `raza` / `kojikitty`
-- Three-panel layout:
-  - left: quick task logging for feed, litter clean, and dog walk
-  - middle: timeline with text/photo posts
-  - right: Toronto time and current Toronto weather
-- Left and right panels can be collapsed in desktop and mobile layouts
-- Photo uploads are resized automatically before storage
-- Photo uploads up to 25 MB are accepted, then resized/compressed on save
-- Data is shared across logged-in users connecting to the same running server
-- Stored posts and uploaded photos require login to access
-- Posts editable and deletable only by the user who created them
-- SQLite persistence
+- Login for `raza` / `password` with a long-lived session cookie
+- Segrada-style warm card UI with light and dark themes
+- Three-part layout:
+  - left quick workout builder with collapsible body-part sections
+  - center timeline
+  - bottom utility panel with diet logging and calendar navigation
+- Seeded exercises for legs, shoulders, back, chest, arms, abs, and neck
+- Quick set, rep, and weight controls for each selected exercise
+- Workout entries saved into the timeline as rendered tables
+- Remembers the last logged weight for each exercise and reuses it as the next default
+- Add custom exercises and manage whether they appear in quick access
+- Diet logging for protein shakes and meals with high-protein yes/no
+- SQLite persistence for workouts, diet logs, exercise catalog data, and workout-day calendar markers
 
 ## Run
 
-1. Install dependencies:
+```bash
+python3 -m pip install -r requirements.txt
+python3 app.py
+```
 
-   ```bash
-   python3 -m pip install -r requirements.txt
-   ```
-
-2. Start the app:
-
-   ```bash
-   python3 app.py
-   ```
-
-3. Open [http://127.0.0.1:5000](http://127.0.0.1:5000) on the machine running the app, or use that machine's LAN IP from another device on the same network.
+Open [http://127.0.0.1:5000](http://127.0.0.1:5000).
 
 ## Test
 
@@ -41,8 +33,8 @@ A small Flask + React app for logging pet updates in a shared household timeline
 python3 -m unittest discover -s tests
 ```
 
-## Notes
+## Deploy
 
-- Uploaded images are stored in `/Users/sraza/Documents/segrada/uploads`.
-- The frontend uses React from a CDN and the backend fetches weather from Open-Meteo.
-- The server now listens on `0.0.0.0` by default. Use `FLASK_HOST`, `FLASK_PORT`, or `FLASK_DEBUG=1` to override runtime behavior.
+- Preview URL: `http://187.124.76.222:8091`
+- Production domain: `https://workout.bloodapps.com`
+- Auto-update: `segrada-update.timer` checks the GitHub repo every 5 minutes

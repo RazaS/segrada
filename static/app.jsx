@@ -1,56 +1,65 @@
 const { useEffect, useRef, useState } = React;
 
-const TORONTO_TIMEZONE = window.APP_CONFIG.torontoTimezone;
+const TIMEZONE = window.APP_CONFIG.timezone;
 
-async function apiFetch(url, options = {}) {
-    const response = await fetch(url, {
+function apiFetch(url, options = {}) {
+    return fetch(url, {
         credentials: "same-origin",
         ...options,
+    }).then(async (response) => {
+        const contentType = response.headers.get("content-type") || "";
+        const payload = contentType.includes("application/json")
+            ? await response.json()
+            : await response.text();
+
+        if (!response.ok) {
+            const message = payload?.error || "Request failed.";
+            const error = new Error(message);
+            error.status = response.status;
+            throw error;
+        }
+
+        return payload;
     });
-
-    const contentType = response.headers.get("content-type") || "";
-    let payload;
-    if (contentType.includes("application/json")) {
-        payload = await response.json();
-    } else {
-        payload = await response.text();
-    }
-
-    if (!response.ok) {
-        const message =
-            payload?.error ||
-            (response.status === 413
-                ? "Photo upload is too large. Keep it under 25 MB."
-                : "Request failed.");
-        const error = new Error(message);
-        error.status = response.status;
-        throw error;
-    }
-
-    return payload;
 }
 
-function formatTorontoTime(date) {
-    return new Intl.DateTimeFormat("en-CA", {
-        timeZone: TORONTO_TIMEZONE,
-        hour: "numeric",
-        minute: "2-digit",
-    }).format(date);
-}
-
-function formatTorontoDate(date) {
-    return new Intl.DateTimeFormat("en-CA", {
-        timeZone: TORONTO_TIMEZONE,
-        weekday: "long",
-        month: "long",
-        day: "numeric",
+function currentMonthKey() {
+    const now = new Date();
+    const formatter = new Intl.DateTimeFormat("en-CA", {
+        timeZone: TIMEZONE,
         year: "numeric",
-    }).format(date);
+        month: "2-digit",
+    });
+    const parts = formatter.formatToParts(now);
+    const year = parts.find((part) => part.type === "year")?.value;
+    const month = parts.find((part) => part.type === "month")?.value;
+    return `${year}-${month}`;
+}
+
+function formatMonthLabel(monthKey) {
+    const [year, month] = monthKey.split("-").map(Number);
+    return new Intl.DateTimeFormat("en-CA", {
+        month: "long",
+        year: "numeric",
+        timeZone: TIMEZONE,
+    }).format(new Date(Date.UTC(year, month - 1, 1)));
+}
+
+function previousMonth(monthKey) {
+    const [year, month] = monthKey.split("-").map(Number);
+    const value = new Date(Date.UTC(year, month - 2, 1));
+    return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}`;
+}
+
+function nextMonth(monthKey) {
+    const [year, month] = monthKey.split("-").map(Number);
+    const value = new Date(Date.UTC(year, month, 1));
+    return `${value.getUTCFullYear()}-${String(value.getUTCMonth() + 1).padStart(2, "0")}`;
 }
 
 function formatTimestamp(value) {
     if (!value) {
-        return "Never";
+        return "";
     }
 
     const parsed = new Date(value);
@@ -59,7 +68,7 @@ function formatTimestamp(value) {
     }
 
     return new Intl.DateTimeFormat("en-CA", {
-        timeZone: TORONTO_TIMEZONE,
+        timeZone: TIMEZONE,
         month: "short",
         day: "numeric",
         hour: "numeric",
@@ -67,52 +76,52 @@ function formatTimestamp(value) {
     }).format(parsed);
 }
 
-function formatMetric(value, suffix) {
-    if (value === null || value === undefined) {
-        return "—";
+function getInitialTheme() {
+    const storedTheme = localStorage.getItem("workout-theme");
+    if (storedTheme === "light" || storedTheme === "dark") {
+        return storedTheme;
     }
-    return `${value}${suffix}`;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+function daysInMonth(year, monthNumber) {
+    return new Date(year, monthNumber, 0).getDate();
+}
+
+function weekdayOffset(year, monthNumber) {
+    return new Date(year, monthNumber - 1, 1).getDay();
 }
 
 function LoginScreen({ busy, error, onSubmit }) {
-    const [selectedUser, setSelectedUser] = useState("victoria");
+    const [username, setUsername] = useState("raza");
     const [password, setPassword] = useState("");
 
     function handleSubmit(event) {
         event.preventDefault();
-        onSubmit(selectedUser, password);
+        onSubmit(username, password);
     }
-
-    const people = [
-        { id: "victoria", name: "Victoria" },
-        { id: "raza", name: "Raza" },
-    ];
 
     return (
         <div className="login-shell">
-            <div className="login-card">
-                <p className="eyebrow">Household Pet Journal</p>
-                <h1>Sign in to the timeline</h1>
+            <section className="login-card">
+                <p className="eyebrow">Training Ledger</p>
+                <h1>Sign in to your workout log</h1>
                 <p className="lede">
-                    Pick your profile, enter your password, and post updates for the
-                    pets from one shared feed.
+                    Persistent login, fast workout logging, diet taps, and a timeline
+                    that keeps every session in one place.
                 </p>
 
                 <form className="login-form" onSubmit={handleSubmit}>
-                    <div className="user-switcher">
-                        {people.map((person) => (
-                            <button
-                                key={person.id}
-                                type="button"
-                                className={`switch-pill ${
-                                    selectedUser === person.id ? "active" : ""
-                                }`}
-                                onClick={() => setSelectedUser(person.id)}
-                            >
-                                {person.name}
-                            </button>
-                        ))}
-                    </div>
+                    <label className="field">
+                        <span>Username</span>
+                        <input
+                            type="text"
+                            value={username}
+                            onChange={(event) => setUsername(event.target.value)}
+                            autoComplete="username"
+                            required
+                        />
+                    </label>
 
                     <label className="field">
                         <span>Password</span>
@@ -120,7 +129,6 @@ function LoginScreen({ busy, error, onSubmit }) {
                             type="password"
                             value={password}
                             onChange={(event) => setPassword(event.target.value)}
-                            placeholder="Enter password"
                             autoComplete="current-password"
                             required
                         />
@@ -132,281 +140,217 @@ function LoginScreen({ busy, error, onSubmit }) {
                         {busy ? "Signing in..." : "Enter app"}
                     </button>
                 </form>
+            </section>
+        </div>
+    );
+}
+
+function MetricControl({
+    label,
+    value,
+    min,
+    onChange,
+    absoluteButtons = [],
+    incrementButtons = [],
+    trailingButton = null,
+}) {
+    return (
+        <div className="metric-control">
+            <div className="metric-header">
+                <span>{label}</span>
+                <input
+                    type="number"
+                    min={min}
+                    value={value}
+                    onChange={(event) => {
+                        const nextValue = Number(event.target.value);
+                        onChange(Number.isNaN(nextValue) ? min : Math.max(min, nextValue));
+                    }}
+                />
+            </div>
+
+            <div className="metric-actions">
+                {absoluteButtons.map((buttonValue) => (
+                    <button
+                        key={`${label}-abs-${buttonValue}`}
+                        className={`mini-chip ${value === buttonValue ? "active" : ""}`}
+                        type="button"
+                        onClick={() => onChange(buttonValue)}
+                    >
+                        {buttonValue}
+                    </button>
+                ))}
+
+                {incrementButtons.map((buttonValue) => (
+                    <button
+                        key={`${label}-inc-${buttonValue}`}
+                        className="mini-chip"
+                        type="button"
+                        onClick={() => onChange(value + buttonValue)}
+                    >
+                        +{buttonValue}
+                    </button>
+                ))}
+
+                {trailingButton ? trailingButton : null}
             </div>
         </div>
     );
 }
 
-function TaskPanel({
-    tasks,
-    noteValues,
-    activeTask,
-    onNoteChange,
-    onLogTask,
-    collapsed,
-    onToggle,
+function ExerciseCard({
+    exercise,
+    draftEntry,
+    onToggleExercise,
+    onChangeMetric,
 }) {
-    return (
-        <aside className={`panel left-panel ${collapsed ? "is-collapsed" : ""}`}>
-            <div className="panel-header">
-                <div>
-                    <p className="eyebrow">Quick Tasks</p>
-                    <h2>Care queue</h2>
-                </div>
-
-                <div className="panel-header-actions">
-                    <button
-                        className="secondary-button panel-toggle"
-                        type="button"
-                        aria-expanded={!collapsed}
-                        onClick={onToggle}
-                    >
-                        {collapsed ? "Expand" : "Collapse"}
-                    </button>
-                </div>
-            </div>
-
-            {collapsed ? (
-                <div className="collapsed-preview">
-                    {tasks.length
-                        ? `${tasks.length} quick actions ready`
-                        : "Quick actions are loading"}
-                </div>
-            ) : (
-                <div className="panel-body">
-                    <div className="task-list">
-                        {tasks.map((task) => (
-                            <section className="task-card" key={task.id}>
-                                <div className="task-row">
-                                    <div>
-                                        <h3>{task.label}</h3>
-                                        <p className="muted">
-                                            Last logged: {formatTimestamp(task.last_completed_at)}
-                                        </p>
-                                    </div>
-
-                                    <button
-                                        className="primary-button"
-                                        type="button"
-                                        disabled={activeTask === task.id}
-                                        onClick={() => onLogTask(task.id)}
-                                    >
-                                        {activeTask === task.id ? "Saving..." : "Log now"}
-                                    </button>
-                                </div>
-
-                                <label className="field compact">
-                                    <span>Optional note</span>
-                                    <textarea
-                                        rows="3"
-                                        placeholder="Anything worth noting?"
-                                        value={noteValues[task.id] || ""}
-                                        onChange={(event) =>
-                                            onNoteChange(task.id, event.target.value)
-                                        }
-                                    />
-                                </label>
-                            </section>
-                        ))}
-                    </div>
-                </div>
-            )}
-        </aside>
-    );
-}
-
-function TimelineItem({
-    post,
-    isEditing,
-    editText,
-    editPhoto,
-    editRemovePhoto,
-    editFileRef,
-    savingEdit,
-    deletingId,
-    onStartEdit,
-    onCancelEdit,
-    onEditTextChange,
-    onEditPhotoChange,
-    onToggleRemovePhoto,
-    onSaveEdit,
-    onDelete,
-}) {
-    const isTask = post.post_type === "task";
-    const hasBeenEdited = post.updated_at !== post.created_at;
+    const selected = Boolean(draftEntry);
 
     return (
-        <article className={`post-card ${isTask ? "task-post" : ""}`}>
-            <div className="post-topline">
-                <span className="post-kind">
-                    {isTask ? `${post.task_label} logged` : "Pet update"}
-                </span>
-                <span className="post-time">
-                    {formatTimestamp(post.created_at)}
-                    {hasBeenEdited ? " · edited" : ""}
-                </span>
-            </div>
-
-            <div className="post-header">
+        <article className={`exercise-card ${selected ? "is-selected" : ""}`}>
+            <div className="exercise-head">
                 <div>
-                    <h3>{post.author_name}</h3>
+                    <h4>{exercise.name}</h4>
                     <p className="muted">
-                        {isTask
-                            ? `Task completed in Toronto`
-                            : `Shared from the household timeline`}
+                        Default weight: {exercise.last_weight}
+                        {exercise.is_custom ? " · custom" : ""}
                     </p>
                 </div>
+
+                <button
+                    className={selected ? "secondary-button" : "primary-button"}
+                    type="button"
+                    onClick={() => onToggleExercise(exercise)}
+                >
+                    {selected ? "Remove" : "Add"}
+                </button>
             </div>
 
-            {isEditing ? (
-                <form
-                    className="edit-form"
-                    onSubmit={(event) => {
-                        event.preventDefault();
-                        onSaveEdit(post);
-                    }}
-                >
-                    <label className="field compact">
-                        <span>{isTask ? "Notes" : "Update text"}</span>
-                        <textarea
-                            rows="4"
-                            value={editText}
-                            onChange={(event) => onEditTextChange(event.target.value)}
-                            placeholder={
-                                isTask
-                                    ? "Add or update notes"
-                                    : "Update the text for this post"
-                            }
-                        />
-                    </label>
+            {selected ? (
+                <div className="exercise-metrics">
+                    <MetricControl
+                        label="Sets"
+                        value={draftEntry.sets}
+                        min={1}
+                        absoluteButtons={[1, 2, 3, 4, 5]}
+                        incrementButtons={[1]}
+                        onChange={(value) => onChangeMetric(exercise.id, "sets", value)}
+                    />
 
-                    {post.image_url ? (
-                        <label className="checkbox-row">
-                            <input
-                                type="checkbox"
-                                checked={editRemovePhoto}
-                                onChange={(event) =>
-                                    onToggleRemovePhoto(event.target.checked)
+                    <MetricControl
+                        label="Reps"
+                        value={draftEntry.reps}
+                        min={1}
+                        absoluteButtons={[1, 2, 3, 4, 5]}
+                        incrementButtons={[1, 5]}
+                        onChange={(value) => onChangeMetric(exercise.id, "reps", value)}
+                    />
+
+                    <MetricControl
+                        label="Weight"
+                        value={draftEntry.weight}
+                        min={0}
+                        incrementButtons={[5, 10, 20]}
+                        trailingButton={
+                            <button
+                                className="mini-chip"
+                                type="button"
+                                onClick={() =>
+                                    onChangeMetric(
+                                        exercise.id,
+                                        "weight",
+                                        exercise.last_weight || 0
+                                    )
                                 }
-                            />
-                            <span>Remove current photo</span>
-                        </label>
-                    ) : null}
-
-                    <label className="file-pill">
-                        {post.image_url ? "Replace photo" : "Add photo"}
-                        <input
-                            ref={editFileRef}
-                            type="file"
-                            accept="image/*"
-                            onChange={(event) =>
-                                onEditPhotoChange(event.target.files?.[0] || null)
-                            }
-                        />
-                    </label>
-
-                    {editPhoto ? (
-                        <div className="file-chip">{editPhoto.name}</div>
-                    ) : null}
-
-                    <div className="card-actions">
-                        <button
-                            className="primary-button"
-                            type="submit"
-                            disabled={savingEdit}
-                        >
-                            {savingEdit ? "Saving..." : "Save changes"}
-                        </button>
-                        <button
-                            className="secondary-button"
-                            type="button"
-                            disabled={savingEdit}
-                            onClick={onCancelEdit}
-                        >
-                            Cancel
-                        </button>
-                    </div>
-                </form>
-            ) : (
-                <>
-                    <div className="post-content">
-                        {post.content ? (
-                            <p>{post.content}</p>
-                        ) : isTask ? (
-                            <p className="empty-copy">
-                                Completed without extra notes.
-                            </p>
-                        ) : null}
-
-                        {post.image_url ? (
-                            <img
-                                className="post-image"
-                                src={post.image_url}
-                                alt="Pet update"
-                            />
-                        ) : null}
-                    </div>
-
-                    {post.can_edit ? (
-                        <div className="card-actions">
-                            <button
-                                className="secondary-button"
-                                type="button"
-                                onClick={() => onStartEdit(post)}
                             >
-                                Edit
+                                Default
                             </button>
-                            <button
-                                className="danger-button"
-                                type="button"
-                                disabled={deletingId === post.id}
-                                onClick={() => onDelete(post)}
-                            >
-                                {deletingId === post.id ? "Deleting..." : "Delete"}
-                            </button>
-                        </div>
-                    ) : null}
-                </>
-            )}
+                        }
+                        onChange={(value) => onChangeMetric(exercise.id, "weight", value)}
+                    />
+                </div>
+            ) : null}
         </article>
     );
 }
 
-function InfoPanel({
-    user,
-    weather,
-    now,
-    onRefresh,
-    onLogout,
-    loading,
-    collapsed,
+function BodyPartSection({
+    part,
+    exercises,
+    expanded,
     onToggle,
+    draftEntries,
+    onToggleExercise,
+    onChangeMetric,
 }) {
     return (
-        <aside className={`panel right-panel ${collapsed ? "is-collapsed" : ""}`}>
+        <section className={`body-part-card ${expanded ? "is-open" : ""}`}>
+            <button className="body-part-header" type="button" onClick={onToggle}>
+                <div>
+                    <p className="eyebrow">{part.label}</p>
+                    <h3>{part.label}</h3>
+                </div>
+                <div className="body-part-meta">
+                    <span>{exercises.length} exercises</span>
+                    <span>{expanded ? "Collapse" : "Expand"}</span>
+                </div>
+            </button>
+
+            {expanded ? (
+                <div className="exercise-list">
+                    {exercises.map((exercise) => (
+                        <ExerciseCard
+                            key={exercise.id}
+                            exercise={exercise}
+                            draftEntry={draftEntries[exercise.id]}
+                            onToggleExercise={onToggleExercise}
+                            onChangeMetric={onChangeMetric}
+                        />
+                    ))}
+                </div>
+            ) : null}
+        </section>
+    );
+}
+
+function QuickPanel({
+    bodyParts,
+    exercises,
+    expandedParts,
+    draftEntries,
+    collapsed,
+    loggingWorkout,
+    onToggleCollapsed,
+    onToggleBodyPart,
+    onExpandAll,
+    onCollapseAll,
+    onToggleExercise,
+    onChangeMetric,
+    onLogWorkout,
+    onClearWorkout,
+    onOpenAddExercise,
+    onOpenManageExercises,
+}) {
+    const activeExercises = exercises.filter((exercise) => exercise.is_active);
+    const selectedCount = Object.keys(draftEntries).length;
+
+    const grouped = bodyParts
+        .map((part) => ({
+            ...part,
+            exercises: activeExercises.filter((exercise) => exercise.body_part === part.id),
+        }))
+        .filter((part) => part.exercises.length > 0);
+
+    return (
+        <aside className={`panel quick-panel ${collapsed ? "is-collapsed" : ""}`}>
             <div className="panel-header">
                 <div>
-                    <p className="eyebrow">Toronto Live</p>
-                    <h2>Info panel</h2>
+                    <p className="eyebrow">Quick Tasks</p>
+                    <h2>Workout builder</h2>
                 </div>
 
                 <div className="panel-header-actions">
-                    {!collapsed ? (
-                        <button
-                            className="secondary-button"
-                            type="button"
-                            onClick={onRefresh}
-                            disabled={loading}
-                        >
-                            {loading ? "Refreshing..." : "Refresh"}
-                        </button>
-                    ) : null}
-                    <button
-                        className="secondary-button panel-toggle"
-                        type="button"
-                        aria-expanded={!collapsed}
-                        onClick={onToggle}
-                    >
+                    <button className="secondary-button panel-toggle" type="button" onClick={onToggleCollapsed}>
                         {collapsed ? "Expand" : "Collapse"}
                     </button>
                 </div>
@@ -414,135 +358,519 @@ function InfoPanel({
 
             {collapsed ? (
                 <div className="collapsed-preview">
-                    Toronto {formatTorontoTime(now)}
-                    {weather?.available ? ` · ${weather.condition}` : ""}
+                    {activeExercises.length} exercises ready · {selectedCount} selected
                 </div>
             ) : (
-                <div className="panel-body info-stack">
-                    <section className="info-card standout">
-                        <p className="eyebrow">Current Time</p>
-                        <div className="clock-face">{formatTorontoTime(now)}</div>
-                        <p className="muted">{formatTorontoDate(now)}</p>
-                        <p className="tiny-note">Toronto, Ontario</p>
-                    </section>
-
-                    <section className="info-card">
-                        <p className="eyebrow">Current Weather</p>
-                        {weather?.available ? (
-                            <>
-                                <h3>{weather.condition}</h3>
-                                <div className="metric-grid">
-                                    <div>
-                                        <span className="metric-label">Temp</span>
-                                        <strong>{formatMetric(weather.temperature_c, "°C")}</strong>
-                                    </div>
-                                    <div>
-                                        <span className="metric-label">Feels like</span>
-                                        <strong>
-                                            {formatMetric(weather.apparent_temperature_c, "°C")}
-                                        </strong>
-                                    </div>
-                                    <div>
-                                        <span className="metric-label">Wind</span>
-                                        <strong>{formatMetric(weather.wind_kph, " km/h")}</strong>
-                                    </div>
-                                </div>
-                                <p className="muted">
-                                    Observed: {formatTimestamp(weather.observed_at)}
-                                </p>
-                            </>
-                        ) : (
-                            <>
-                                <h3>Weather unavailable</h3>
-                                <p className="muted">
-                                    The app could not reach the weather service right now.
-                                </p>
-                            </>
-                        )}
-                    </section>
-
-                    <section className="info-card user-card">
-                        <p className="eyebrow">Signed In</p>
-                        <h3>{user.display_name}</h3>
-                        <p className="muted">@{user.username}</p>
-                        <button
-                            className="secondary-button full-width"
-                            type="button"
-                            onClick={onLogout}
-                        >
-                            Log out
+                <>
+                    <div className="builder-toolbar">
+                        <button className="secondary-button" type="button" onClick={onExpandAll}>
+                            Expand all
                         </button>
-                    </section>
-                </div>
+                        <button className="secondary-button" type="button" onClick={onCollapseAll}>
+                            Collapse all
+                        </button>
+                        <button className="secondary-button" type="button" onClick={onOpenAddExercise}>
+                            Add exercise
+                        </button>
+                        <button className="secondary-button" type="button" onClick={onOpenManageExercises}>
+                            Exercise management
+                        </button>
+                    </div>
+
+                    <div className="panel-body quick-body">
+                        {grouped.map((part) => (
+                            <BodyPartSection
+                                key={part.id}
+                                part={part}
+                                exercises={part.exercises}
+                                expanded={Boolean(expandedParts[part.id])}
+                                onToggle={() => onToggleBodyPart(part.id)}
+                                draftEntries={draftEntries}
+                                onToggleExercise={onToggleExercise}
+                                onChangeMetric={onChangeMetric}
+                            />
+                        ))}
+                    </div>
+
+                    <div className="sticky-summary">
+                        <div>
+                            <strong>{selectedCount}</strong> exercise
+                            {selectedCount === 1 ? "" : "s"} queued
+                        </div>
+                        <div className="summary-actions">
+                            <button className="secondary-button" type="button" onClick={onClearWorkout}>
+                                Clear
+                            </button>
+                            <button
+                                className="primary-button"
+                                type="button"
+                                disabled={selectedCount === 0 || loggingWorkout}
+                                onClick={onLogWorkout}
+                            >
+                                {loggingWorkout ? "Logging..." : "Log workout"}
+                            </button>
+                        </div>
+                    </div>
+                </>
             )}
         </aside>
+    );
+}
+
+function WorkoutTable({ entries }) {
+    return (
+        <div className="table-wrap">
+            <table className="workout-table">
+                <thead>
+                    <tr>
+                        <th>Exercise</th>
+                        <th>Body Part</th>
+                        <th>Sets</th>
+                        <th>Reps</th>
+                        <th>Weight</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {entries.map((entry) => (
+                        <tr key={`${entry.exercise_id}-${entry.exercise_name}`}>
+                            <td>{entry.exercise_name}</td>
+                            <td>{entry.body_part_label}</td>
+                            <td>{entry.sets}</td>
+                            <td>{entry.reps}</td>
+                            <td>{entry.weight}</td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    );
+}
+
+function TimelineEvent({ event }) {
+    if (event.event_type === "workout") {
+        return (
+            <article className="timeline-card workout-event">
+                <div className="timeline-topline">
+                    <span className="timeline-kind">Workout</span>
+                    <span className="timeline-time">{formatTimestamp(event.created_at)}</span>
+                </div>
+                <div className="timeline-header">
+                    <div>
+                        <h3>{event.author_name}</h3>
+                        <p className="muted">
+                            {event.exercise_count} exercises logged · volume {event.total_volume}
+                        </p>
+                    </div>
+                </div>
+                <WorkoutTable entries={event.entries} />
+            </article>
+        );
+    }
+
+    if (event.event_type === "protein_shake") {
+        return (
+            <article className="timeline-card diet-event">
+                <div className="timeline-topline">
+                    <span className="timeline-kind">Diet</span>
+                    <span className="timeline-time">{formatTimestamp(event.created_at)}</span>
+                </div>
+                <h3>Protein shake</h3>
+                <p className="muted">Logged with one tap.</p>
+            </article>
+        );
+    }
+
+    if (event.event_type === "meal") {
+        return (
+            <article className="timeline-card diet-event">
+                <div className="timeline-topline">
+                    <span className="timeline-kind">Diet</span>
+                    <span className="timeline-time">{formatTimestamp(event.created_at)}</span>
+                </div>
+                <h3>Meal eaten</h3>
+                <p className="muted">
+                    High protein: {event.high_protein ? "Yes" : "No"}
+                </p>
+            </article>
+        );
+    }
+
+    return null;
+}
+
+function TimelinePanel({
+    user,
+    timeline,
+    loading,
+    theme,
+    onToggleTheme,
+    onLogout,
+    onRefresh,
+    error,
+}) {
+    return (
+        <main className="panel timeline-panel">
+            <div className="panel-header">
+                <div>
+                    <p className="eyebrow">Timeline</p>
+                    <h2>Workout log</h2>
+                </div>
+
+                <div className="panel-header-actions">
+                    <div className="user-chip">{user.display_name}</div>
+                    <button className="secondary-button" type="button" onClick={onToggleTheme}>
+                        {theme === "dark" ? "Light mode" : "Dark mode"}
+                    </button>
+                    <button className="secondary-button" type="button" onClick={onRefresh} disabled={loading}>
+                        {loading ? "Refreshing..." : "Refresh"}
+                    </button>
+                    <button className="secondary-button" type="button" onClick={onLogout}>
+                        Log out
+                    </button>
+                </div>
+            </div>
+
+            {error ? <div className="error-banner">{error}</div> : null}
+
+            <div className="timeline-list">
+                {loading && timeline.length === 0 ? (
+                    <div className="empty-state">Loading timeline...</div>
+                ) : null}
+
+                {!loading && timeline.length === 0 ? (
+                    <div className="empty-state">
+                        No entries yet. Build a workout or tap one of the diet actions below.
+                    </div>
+                ) : null}
+
+                {timeline.map((event) => (
+                    <TimelineEvent key={`${event.event_type}-${event.id}`} event={event} />
+                ))}
+            </div>
+        </main>
+    );
+}
+
+function DietTab({ onProteinShake, onMeal, logging }) {
+    return (
+        <div className="bottom-content">
+            <section className="utility-card">
+                <p className="eyebrow">Diet</p>
+                <h3>One-tap logs</h3>
+                <p className="muted">
+                    These entries go straight into the same timeline and SQLite history.
+                </p>
+                <div className="diet-actions">
+                    <button
+                        className="primary-button"
+                        type="button"
+                        disabled={logging}
+                        onClick={onProteinShake}
+                    >
+                        {logging ? "Logging..." : "Drank protein shake"}
+                    </button>
+                </div>
+            </section>
+
+            <section className="utility-card">
+                <p className="eyebrow">Meal</p>
+                <h3>Log a meal</h3>
+                <p className="muted">
+                    Records the timestamp and whether the meal was high protein.
+                </p>
+                <div className="diet-actions">
+                    <button className="secondary-button" type="button" disabled={logging} onClick={() => onMeal(true)}>
+                        Meal eaten · high protein
+                    </button>
+                    <button className="secondary-button" type="button" disabled={logging} onClick={() => onMeal(false)}>
+                        Meal eaten · not high protein
+                    </button>
+                </div>
+            </section>
+        </div>
+    );
+}
+
+function CalendarTab({ calendar, onPreviousMonth, onNextMonth, loading }) {
+    const totalDays = daysInMonth(calendar.year, calendar.month_number);
+    const offset = weekdayOffset(calendar.year, calendar.month_number);
+    const cells = [];
+
+    for (let index = 0; index < offset; index += 1) {
+        cells.push(<div key={`blank-${index}`} className="calendar-cell empty" />);
+    }
+
+    for (let day = 1; day <= totalDays; day += 1) {
+        const workedOut = calendar.workout_days.includes(day);
+        cells.push(
+            <div key={day} className={`calendar-cell ${workedOut ? "worked-out" : ""}`}>
+                <span className="calendar-day-number">{day}</span>
+                <span className="calendar-marker">{workedOut ? "x" : ""}</span>
+            </div>
+        );
+    }
+
+    return (
+        <div className="bottom-content">
+            <section className="utility-card calendar-card">
+                <div className="calendar-header">
+                    <div>
+                        <p className="eyebrow">Workout Calendar</p>
+                        <h3>{formatMonthLabel(calendar.month)}</h3>
+                    </div>
+
+                    <div className="calendar-actions">
+                        <button className="secondary-button" type="button" onClick={onPreviousMonth} disabled={loading}>
+                            Prev
+                        </button>
+                        <button className="secondary-button" type="button" onClick={onNextMonth} disabled={loading}>
+                            Next
+                        </button>
+                    </div>
+                </div>
+
+                <div className="calendar-weekdays">
+                    {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
+                        <span key={label}>{label}</span>
+                    ))}
+                </div>
+
+                <div className="calendar-grid">{cells}</div>
+                <p className="tiny-note">Green x marks a day with at least one logged workout.</p>
+            </section>
+        </div>
+    );
+}
+
+function BottomPanel({
+    activeTab,
+    onChangeTab,
+    calendar,
+    calendarLoading,
+    dietLogging,
+    onProteinShake,
+    onMeal,
+    onPreviousMonth,
+    onNextMonth,
+}) {
+    return (
+        <section className="panel bottom-panel">
+            <div className="bottom-nav">
+                <button
+                    className={`nav-pill ${activeTab === "diet" ? "active" : ""}`}
+                    type="button"
+                    onClick={() => onChangeTab("diet")}
+                >
+                    Diet
+                </button>
+                <button
+                    className={`nav-pill ${activeTab === "calendar" ? "active" : ""}`}
+                    type="button"
+                    onClick={() => onChangeTab("calendar")}
+                >
+                    Calendar
+                </button>
+            </div>
+
+            {activeTab === "diet" ? (
+                <DietTab
+                    onProteinShake={onProteinShake}
+                    onMeal={onMeal}
+                    logging={dietLogging}
+                />
+            ) : (
+                <CalendarTab
+                    calendar={calendar}
+                    onPreviousMonth={onPreviousMonth}
+                    onNextMonth={onNextMonth}
+                    loading={calendarLoading}
+                />
+            )}
+        </section>
+    );
+}
+
+function Modal({ title, onClose, children }) {
+    return (
+        <div className="modal-backdrop" role="presentation" onClick={onClose}>
+            <div
+                className="modal-card"
+                role="dialog"
+                aria-modal="true"
+                aria-label={title}
+                onClick={(event) => event.stopPropagation()}
+            >
+                <div className="modal-header">
+                    <div>
+                        <p className="eyebrow">Manage</p>
+                        <h3>{title}</h3>
+                    </div>
+                    <button className="secondary-button" type="button" onClick={onClose}>
+                        Close
+                    </button>
+                </div>
+                {children}
+            </div>
+        </div>
+    );
+}
+
+function AddExerciseModal({
+    bodyParts,
+    busy,
+    error,
+    onClose,
+    onSubmit,
+}) {
+    const [name, setName] = useState("");
+    const [bodyPart, setBodyPart] = useState(bodyParts[0]?.id || "legs");
+
+    function handleSubmit(event) {
+        event.preventDefault();
+        onSubmit({ name, body_part: bodyPart });
+    }
+
+    return (
+        <Modal title="Add exercise" onClose={onClose}>
+            <form className="modal-form" onSubmit={handleSubmit}>
+                <label className="field">
+                    <span>Exercise name</span>
+                    <input
+                        type="text"
+                        value={name}
+                        onChange={(event) => setName(event.target.value)}
+                        placeholder="Example: Cable curls"
+                        required
+                    />
+                </label>
+
+                <label className="field">
+                    <span>Body part</span>
+                    <select value={bodyPart} onChange={(event) => setBodyPart(event.target.value)}>
+                        {bodyParts.map((part) => (
+                            <option key={part.id} value={part.id}>
+                                {part.label}
+                            </option>
+                        ))}
+                    </select>
+                </label>
+
+                {error ? <div className="error-banner">{error}</div> : null}
+
+                <div className="card-actions">
+                    <button className="primary-button" type="submit" disabled={busy}>
+                        {busy ? "Saving..." : "Save exercise"}
+                    </button>
+                </div>
+            </form>
+        </Modal>
+    );
+}
+
+function ExerciseManagementModal({
+    bodyParts,
+    exercises,
+    busyId,
+    error,
+    onClose,
+    onToggleVisibility,
+}) {
+    return (
+        <Modal title="Exercise management" onClose={onClose}>
+            {error ? <div className="error-banner">{error}</div> : null}
+            <div className="management-list">
+                {bodyParts.map((part) => {
+                    const items = exercises.filter((exercise) => exercise.body_part === part.id);
+                    if (!items.length) {
+                        return null;
+                    }
+
+                    return (
+                        <section key={part.id} className="management-group">
+                            <p className="eyebrow">{part.label}</p>
+                            <div className="management-items">
+                                {items.map((exercise) => (
+                                    <div key={exercise.id} className="management-row">
+                                        <div>
+                                            <strong>{exercise.name}</strong>
+                                            <p className="muted">
+                                                {exercise.is_active ? "Shown in quick access" : "Hidden from quick access"}
+                                                {exercise.is_custom ? " · custom" : ""}
+                                            </p>
+                                        </div>
+
+                                        <button
+                                            className="secondary-button"
+                                            type="button"
+                                            disabled={busyId === exercise.id}
+                                            onClick={() => onToggleVisibility(exercise)}
+                                        >
+                                            {busyId === exercise.id
+                                                ? "Saving..."
+                                                : exercise.is_active
+                                                    ? "Hide"
+                                                    : "Show"}
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </section>
+                    );
+                })}
+            </div>
+        </Modal>
     );
 }
 
 function App() {
     const [sessionChecked, setSessionChecked] = useState(false);
     const [user, setUser] = useState(null);
-    const [posts, setPosts] = useState([]);
-    const [tasks, setTasks] = useState([]);
-    const [weather, setWeather] = useState(null);
-    const [now, setNow] = useState(new Date());
+    const [bodyParts, setBodyParts] = useState([]);
+    const [exercises, setExercises] = useState([]);
+    const [timeline, setTimeline] = useState([]);
+    const [calendar, setCalendar] = useState({
+        month: currentMonthKey(),
+        year: Number(currentMonthKey().slice(0, 4)),
+        month_number: Number(currentMonthKey().slice(5, 7)),
+        workout_days: [],
+    });
 
+    const [theme, setTheme] = useState(getInitialTheme);
     const [loginBusy, setLoginBusy] = useState(false);
-    const [loadingDashboard, setLoadingDashboard] = useState(false);
+    const [dashboardLoading, setDashboardLoading] = useState(false);
+    const [calendarLoading, setCalendarLoading] = useState(false);
+    const [loggingWorkout, setLoggingWorkout] = useState(false);
+    const [dietLogging, setDietLogging] = useState(false);
     const [authError, setAuthError] = useState("");
     const [actionError, setActionError] = useState("");
 
-    const [composerText, setComposerText] = useState("");
-    const [composerPhoto, setComposerPhoto] = useState(null);
-    const [composeBusy, setComposeBusy] = useState(false);
+    const [quickCollapsed, setQuickCollapsed] = useState(false);
+    const [expandedParts, setExpandedParts] = useState({});
+    const [draftEntries, setDraftEntries] = useState({});
+    const [bottomTab, setBottomTab] = useState("diet");
 
-    const [taskNotes, setTaskNotes] = useState({
-        feed: "",
-        litter_clean: "",
-        dog_walk: "",
-    });
-    const [loggingTask, setLoggingTask] = useState("");
-    const [tasksCollapsed, setTasksCollapsed] = useState(false);
-    const [infoCollapsed, setInfoCollapsed] = useState(false);
+    const [showAddExercise, setShowAddExercise] = useState(false);
+    const [showManageExercises, setShowManageExercises] = useState(false);
+    const [addExerciseBusy, setAddExerciseBusy] = useState(false);
+    const [addExerciseError, setAddExerciseError] = useState("");
+    const [manageError, setManageError] = useState("");
+    const [manageBusyId, setManageBusyId] = useState(null);
 
-    const [editingId, setEditingId] = useState(null);
-    const [editText, setEditText] = useState("");
-    const [editPhoto, setEditPhoto] = useState(null);
-    const [editRemovePhoto, setEditRemovePhoto] = useState(false);
-    const [savingEdit, setSavingEdit] = useState(false);
-    const [deletingId, setDeletingId] = useState(null);
+    const calendarMonth = calendar.month;
+    const calendarMonthRef = useRef(calendarMonth);
 
-    const composerFileRef = useRef(null);
-    const editFileRef = useRef(null);
+    useEffect(() => {
+        document.documentElement.dataset.theme = theme;
+        localStorage.setItem("workout-theme", theme);
+    }, [theme]);
+
+    useEffect(() => {
+        calendarMonthRef.current = calendarMonth;
+    }, [calendarMonth]);
 
     useEffect(() => {
         loadSession();
     }, []);
-
-    useEffect(() => {
-        const timer = window.setInterval(() => {
-            setNow(new Date());
-        }, 1000);
-
-        return () => window.clearInterval(timer);
-    }, []);
-
-    useEffect(() => {
-        if (!user) {
-            setPosts([]);
-            setTasks([]);
-            setWeather(null);
-            return undefined;
-        }
-
-        loadDashboard();
-
-        const timer = window.setInterval(() => {
-            loadWeather();
-        }, 10 * 60 * 1000);
-
-        return () => window.clearInterval(timer);
-    }, [user]);
 
     async function loadSession() {
         try {
@@ -555,40 +883,44 @@ function App() {
         }
     }
 
-    async function loadDashboard() {
-        setLoadingDashboard(true);
+    useEffect(() => {
+        if (!user) {
+            setBodyParts([]);
+            setExercises([]);
+            setTimeline([]);
+            setDraftEntries({});
+            return;
+        }
+
+        loadDashboard(calendarMonthRef.current);
+    }, [user]);
+
+    async function loadDashboard(monthKey) {
+        setDashboardLoading(true);
         setActionError("");
         try {
-            const [postPayload, taskPayload, weatherPayload] = await Promise.all([
-                apiFetch("/api/posts"),
-                apiFetch("/api/tasks"),
-                apiFetch("/api/weather"),
-            ]);
-            setPosts(postPayload.posts);
-            setTasks(taskPayload.tasks);
-            setWeather(weatherPayload);
+            const payload = await apiFetch(`/api/dashboard?month=${encodeURIComponent(monthKey)}`);
+            setBodyParts(payload.body_parts);
+            setExercises(payload.exercises);
+            setTimeline(payload.timeline);
+            setCalendar(payload.calendar);
         } catch (error) {
             handleApiError(error);
         } finally {
-            setLoadingDashboard(false);
+            setDashboardLoading(false);
         }
     }
 
-    async function loadTasks() {
+    async function loadCalendar(monthKey) {
+        setCalendarLoading(true);
+        setActionError("");
         try {
-            const payload = await apiFetch("/api/tasks");
-            setTasks(payload.tasks);
+            const payload = await apiFetch(`/api/calendar?month=${encodeURIComponent(monthKey)}`);
+            setCalendar(payload);
         } catch (error) {
             handleApiError(error);
-        }
-    }
-
-    async function loadWeather() {
-        try {
-            const payload = await apiFetch("/api/weather");
-            setWeather(payload);
-        } catch (error) {
-            handleApiError(error);
+        } finally {
+            setCalendarLoading(false);
         }
     }
 
@@ -628,163 +960,220 @@ function App() {
             setActionError(error.message);
         } finally {
             setUser(null);
-            setEditingId(null);
-            setComposerText("");
-            setComposerPhoto(null);
-            if (composerFileRef.current) {
-                composerFileRef.current.value = "";
-            }
+            setShowAddExercise(false);
+            setShowManageExercises(false);
         }
     }
 
-    async function handleCreatePost(event) {
-        event.preventDefault();
+    function toggleBodyPart(partId) {
+        setExpandedParts((current) => ({
+            ...current,
+            [partId]: !current[partId],
+        }));
+    }
 
-        if (!composerText.trim() && !composerPhoto) {
-            setActionError("Add some text or attach a photo.");
+    function expandAll() {
+        const nextState = {};
+        bodyParts.forEach((part) => {
+            nextState[part.id] = true;
+        });
+        setExpandedParts(nextState);
+    }
+
+    function collapseAll() {
+        setExpandedParts({});
+    }
+
+    function toggleExercise(exercise) {
+        setDraftEntries((current) => {
+            if (current[exercise.id]) {
+                const nextEntries = { ...current };
+                delete nextEntries[exercise.id];
+                return nextEntries;
+            }
+
+            return {
+                ...current,
+                [exercise.id]: {
+                    exercise_id: exercise.id,
+                    sets: 1,
+                    reps: 1,
+                    weight: exercise.last_weight || 0,
+                },
+            };
+        });
+    }
+
+    function changeMetric(exerciseId, field, value) {
+        setDraftEntries((current) => {
+            const entry = current[exerciseId];
+            if (!entry) {
+                return current;
+            }
+
+            return {
+                ...current,
+                [exerciseId]: {
+                    ...entry,
+                    [field]: value,
+                },
+            };
+        });
+    }
+
+    async function logWorkout() {
+        const entries = Object.values(draftEntries);
+        if (!entries.length) {
+            setActionError("Select at least one exercise before logging.");
             return;
         }
 
-        setComposeBusy(true);
+        setLoggingWorkout(true);
         setActionError("");
-
-        const formData = new FormData();
-        formData.append("content", composerText);
-        if (composerPhoto) {
-            formData.append("photo", composerPhoto);
-        }
-
         try {
-            const payload = await apiFetch("/api/posts", {
-                method: "POST",
-                body: formData,
-            });
-            setPosts((current) => [payload.post, ...current]);
-            setComposerText("");
-            setComposerPhoto(null);
-            if (composerFileRef.current) {
-                composerFileRef.current.value = "";
-            }
-        } catch (error) {
-            handleApiError(error);
-        } finally {
-            setComposeBusy(false);
-        }
-    }
-
-    async function handleQuickLog(taskId) {
-        setLoggingTask(taskId);
-        setActionError("");
-
-        try {
-            const payload = await apiFetch("/api/quick-log", {
+            const payload = await apiFetch("/api/workouts", {
                 method: "POST",
                 headers: {
                     "Content-Type": "application/json",
                 },
-                body: JSON.stringify({
-                    task: taskId,
-                    notes: taskNotes[taskId] || "",
-                }),
+                body: JSON.stringify({ entries }),
+            });
+            setTimeline((current) => [payload.event, ...current]);
+            setExercises(payload.exercises);
+            setDraftEntries({});
+            await loadCalendar(calendarMonthRef.current);
+        } catch (error) {
+            handleApiError(error);
+        } finally {
+            setLoggingWorkout(false);
+        }
+    }
+
+    async function logProteinShake() {
+        setDietLogging(true);
+        setActionError("");
+        try {
+            const payload = await apiFetch("/api/diet/protein-shake", {
+                method: "POST",
+            });
+            setTimeline((current) => [payload.event, ...current]);
+        } catch (error) {
+            handleApiError(error);
+        } finally {
+            setDietLogging(false);
+        }
+    }
+
+    async function logMeal(highProtein) {
+        setDietLogging(true);
+        setActionError("");
+        try {
+            const payload = await apiFetch("/api/diet/meal", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ high_protein: highProtein }),
+            });
+            setTimeline((current) => [payload.event, ...current]);
+        } catch (error) {
+            handleApiError(error);
+        } finally {
+            setDietLogging(false);
+        }
+    }
+
+    async function submitExercise(form) {
+        setAddExerciseBusy(true);
+        setAddExerciseError("");
+        try {
+            const payload = await apiFetch("/api/exercises", {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify(form),
             });
 
-            setPosts((current) => [payload.post, ...current]);
-            setTasks((current) =>
-                current.map((task) =>
-                    task.id === taskId
-                        ? { ...task, last_completed_at: payload.post.created_at }
-                        : task
-                )
-            );
-            setTaskNotes((current) => ({
+            setExercises((current) => {
+                const next = [...current, payload.exercise];
+                next.sort((left, right) => {
+                    const leftBody = bodyParts.findIndex((part) => part.id === left.body_part);
+                    const rightBody = bodyParts.findIndex((part) => part.id === right.body_part);
+                    if (leftBody !== rightBody) {
+                        return leftBody - rightBody;
+                    }
+                    if (left.sort_order !== right.sort_order) {
+                        return left.sort_order - right.sort_order;
+                    }
+                    return left.name.localeCompare(right.name);
+                });
+                return next;
+            });
+            setExpandedParts((current) => ({
                 ...current,
-                [taskId]: "",
+                [payload.exercise.body_part]: true,
             }));
+            setShowAddExercise(false);
         } catch (error) {
-            handleApiError(error);
+            setAddExerciseError(error.message);
         } finally {
-            setLoggingTask("");
+            setAddExerciseBusy(false);
         }
     }
 
-    function startEditing(post) {
-        setEditingId(post.id);
-        setEditText(post.content || "");
-        setEditPhoto(null);
-        setEditRemovePhoto(false);
-        if (editFileRef.current) {
-            editFileRef.current.value = "";
-        }
-    }
-
-    function cancelEditing() {
-        setEditingId(null);
-        setEditText("");
-        setEditPhoto(null);
-        setEditRemovePhoto(false);
-        if (editFileRef.current) {
-            editFileRef.current.value = "";
-        }
-    }
-
-    async function saveEdit(post) {
-        setSavingEdit(true);
-        setActionError("");
-
-        const formData = new FormData();
-        formData.append("content", editText);
-        formData.append("removePhoto", editRemovePhoto ? "true" : "false");
-        if (editPhoto) {
-            formData.append("photo", editPhoto);
-        }
-
+    async function toggleExerciseVisibility(exercise) {
+        setManageBusyId(exercise.id);
+        setManageError("");
         try {
-            const payload = await apiFetch(`/api/posts/${post.id}`, {
-                method: "PUT",
-                body: formData,
+            const payload = await apiFetch(`/api/exercises/${exercise.id}`, {
+                method: "PATCH",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ is_active: !exercise.is_active }),
             });
-            setPosts((current) =>
-                current.map((entry) =>
-                    entry.id === post.id ? payload.post : entry
+            setExercises((current) =>
+                current.map((item) =>
+                    item.id === exercise.id ? payload.exercise : item
                 )
             );
-            cancelEditing();
-        } catch (error) {
-            handleApiError(error);
-        } finally {
-            setSavingEdit(false);
-        }
-    }
-
-    async function handleDelete(post) {
-        const confirmed = window.confirm("Delete this post?");
-        if (!confirmed) {
-            return;
-        }
-
-        setDeletingId(post.id);
-        setActionError("");
-
-        try {
-            await apiFetch(`/api/posts/${post.id}`, { method: "DELETE" });
-            setPosts((current) => current.filter((entry) => entry.id !== post.id));
-            if (post.post_type === "task") {
-                await loadTasks();
+            if (exercise.is_active) {
+                setDraftEntries((current) => {
+                    if (!current[exercise.id]) {
+                        return current;
+                    }
+                    const nextEntries = { ...current };
+                    delete nextEntries[exercise.id];
+                    return nextEntries;
+                });
             }
         } catch (error) {
-            handleApiError(error);
+            setManageError(error.message);
         } finally {
-            setDeletingId(null);
+            setManageBusyId(null);
         }
+    }
+
+    function goPreviousMonth() {
+        const nextMonthKey = previousMonth(calendarMonthRef.current);
+        loadCalendar(nextMonthKey);
+        setBottomTab("calendar");
+    }
+
+    function goNextMonth() {
+        const nextMonthKey = nextMonth(calendarMonthRef.current);
+        loadCalendar(nextMonthKey);
+        setBottomTab("calendar");
     }
 
     if (!sessionChecked) {
         return (
-            <div className="loading-screen">
-                <div className="loading-card">
-                    <p className="eyebrow">Household Pet Journal</p>
-                    <h1>Loading timeline…</h1>
-                </div>
+            <div className="login-shell">
+                <section className="login-card">
+                    <p className="eyebrow">Training Ledger</p>
+                    <h1>Loading workspace...</h1>
+                </section>
             </div>
         );
     }
@@ -799,127 +1188,81 @@ function App() {
         );
     }
 
-    const shellClassName = [
-        "app-shell",
-        tasksCollapsed ? "left-collapsed" : "",
-        infoCollapsed ? "right-collapsed" : "",
-    ]
-        .filter(Boolean)
-        .join(" ");
-
     return (
-        <div className={shellClassName}>
-            <TaskPanel
-                tasks={tasks}
-                noteValues={taskNotes}
-                activeTask={loggingTask}
-                collapsed={tasksCollapsed}
-                onToggle={() => setTasksCollapsed((current) => !current)}
-                onNoteChange={(taskId, value) =>
-                    setTaskNotes((current) => ({
-                        ...current,
-                        [taskId]: value,
-                    }))
-                }
-                onLogTask={handleQuickLog}
-            />
+        <>
+            <div className={`app-shell ${quickCollapsed ? "quick-collapsed" : ""}`}>
+                <QuickPanel
+                    bodyParts={bodyParts}
+                    exercises={exercises}
+                    expandedParts={expandedParts}
+                    draftEntries={draftEntries}
+                    collapsed={quickCollapsed}
+                    loggingWorkout={loggingWorkout}
+                    onToggleCollapsed={() => setQuickCollapsed((current) => !current)}
+                    onToggleBodyPart={toggleBodyPart}
+                    onExpandAll={expandAll}
+                    onCollapseAll={collapseAll}
+                    onToggleExercise={toggleExercise}
+                    onChangeMetric={changeMetric}
+                    onLogWorkout={logWorkout}
+                    onClearWorkout={() => setDraftEntries({})}
+                    onOpenAddExercise={() => {
+                        setAddExerciseError("");
+                        setShowAddExercise(true);
+                    }}
+                    onOpenManageExercises={() => {
+                        setManageError("");
+                        setShowManageExercises(true);
+                    }}
+                />
 
-            <main className="panel center-panel">
-                <div className="panel-header">
-                    <div>
-                        <p className="eyebrow">Shared Feed</p>
-                        <h2>Pet timeline</h2>
-                    </div>
-                    <div className="user-chip">{user.display_name}</div>
-                </div>
+                <TimelinePanel
+                    user={user}
+                    timeline={timeline}
+                    loading={dashboardLoading}
+                    theme={theme}
+                    onToggleTheme={() =>
+                        setTheme((current) => (current === "dark" ? "light" : "dark"))
+                    }
+                    onLogout={handleLogout}
+                    onRefresh={() => loadDashboard(calendarMonthRef.current)}
+                    error={actionError}
+                />
 
-                <form className="composer-card" onSubmit={handleCreatePost}>
-                    <label className="field">
-                        <span>Post an update</span>
-                        <textarea
-                            rows="4"
-                            placeholder="What happened with the pets today?"
-                            value={composerText}
-                            onChange={(event) => setComposerText(event.target.value)}
-                        />
-                    </label>
+                <BottomPanel
+                    activeTab={bottomTab}
+                    onChangeTab={setBottomTab}
+                    calendar={calendar}
+                    calendarLoading={calendarLoading}
+                    dietLogging={dietLogging}
+                    onProteinShake={logProteinShake}
+                    onMeal={logMeal}
+                    onPreviousMonth={goPreviousMonth}
+                    onNextMonth={goNextMonth}
+                />
+            </div>
 
-                    <div className="composer-actions">
-                        <label className="file-pill">
-                            Add photo
-                            <input
-                                ref={composerFileRef}
-                                type="file"
-                                accept="image/*"
-                                onChange={(event) =>
-                                    setComposerPhoto(event.target.files?.[0] || null)
-                                }
-                            />
-                        </label>
+            {showAddExercise ? (
+                <AddExerciseModal
+                    bodyParts={bodyParts}
+                    busy={addExerciseBusy}
+                    error={addExerciseError}
+                    onClose={() => setShowAddExercise(false)}
+                    onSubmit={submitExercise}
+                />
+            ) : null}
 
-                        {composerPhoto ? (
-                            <div className="file-chip">{composerPhoto.name}</div>
-                        ) : (
-                            <div className="muted">Text-only posts are fine too.</div>
-                        )}
-
-                        <button
-                            className="primary-button"
-                            type="submit"
-                            disabled={composeBusy}
-                        >
-                            {composeBusy ? "Posting..." : "Post update"}
-                        </button>
-                    </div>
-                </form>
-
-                {actionError ? <div className="error-banner">{actionError}</div> : null}
-
-                <div className="timeline-list">
-                    {loadingDashboard && posts.length === 0 ? (
-                        <div className="empty-state">Loading posts…</div>
-                    ) : null}
-
-                    {!loadingDashboard && posts.length === 0 ? (
-                        <div className="empty-state">
-                            No updates yet. Add the first pet note or task completion.
-                        </div>
-                    ) : null}
-
-                    {posts.map((post) => (
-                        <TimelineItem
-                            key={post.id}
-                            post={post}
-                            isEditing={editingId === post.id}
-                            editText={editText}
-                            editPhoto={editPhoto}
-                            editRemovePhoto={editRemovePhoto}
-                            editFileRef={editFileRef}
-                            savingEdit={savingEdit}
-                            deletingId={deletingId}
-                            onStartEdit={startEditing}
-                            onCancelEdit={cancelEditing}
-                            onEditTextChange={setEditText}
-                            onEditPhotoChange={setEditPhoto}
-                            onToggleRemovePhoto={setEditRemovePhoto}
-                            onSaveEdit={saveEdit}
-                            onDelete={handleDelete}
-                        />
-                    ))}
-                </div>
-            </main>
-
-            <InfoPanel
-                user={user}
-                weather={weather}
-                now={now}
-                onRefresh={loadDashboard}
-                onLogout={handleLogout}
-                loading={loadingDashboard}
-                collapsed={infoCollapsed}
-                onToggle={() => setInfoCollapsed((current) => !current)}
-            />
-        </div>
+            {showManageExercises ? (
+                <ExerciseManagementModal
+                    bodyParts={bodyParts}
+                    exercises={exercises}
+                    busyId={manageBusyId}
+                    error={manageError}
+                    onClose={() => setShowManageExercises(false)}
+                    onToggleVisibility={toggleExerciseVisibility}
+                />
+            ) : null}
+        </>
     );
 }
 

@@ -1,5 +1,5 @@
 [Unit]
-Description=Check Segrada Git updates regularly
+Description=Check Workout Ledger Git updates regularly
 
 [Timer]
 OnBootSec=3min
