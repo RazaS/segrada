@@ -186,6 +186,17 @@ table {
     font-size: 1.55rem;
 }
 
+.quick-panel-title {
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+    padding: 0;
+    border: none;
+    background: transparent;
+    color: inherit;
+    text-align: left;
+}
+
 .user-chip {
     padding: 0.4rem 0.72rem;
     border-radius: 999px;
@@ -483,40 +494,6 @@ table {
 
 .large {
     width: 100%;
-}
-
-.panel-toggle {
-    min-width: 88px;
-}
-
-.menu-toggle-button {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    background: rgba(211, 111, 75, 0.16);
-    color: var(--accent-deep);
-    border: 1px solid rgba(211, 111, 75, 0.22);
-    white-space: nowrap;
-}
-
-:root[data-theme="dark"] .menu-toggle-button {
-    background: rgba(239, 148, 108, 0.18);
-    color: var(--accent-deep);
-    border-color: rgba(239, 148, 108, 0.25);
-}
-
-.quick-panel.is-collapsed .panel-header {
-    flex-direction: column;
-    align-items: stretch;
-}
-
-.quick-panel.is-collapsed .panel-header-actions {
-    width: 100%;
-}
-
-.quick-panel.is-collapsed .menu-toggle-button {
-    width: 100%;
-    justify-content: center;
 }
 
 .timeline-list {

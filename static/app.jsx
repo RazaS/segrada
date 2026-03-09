@@ -389,20 +389,10 @@ function QuickPanel({
     return (
         <aside className={`panel quick-panel ${collapsed ? "is-collapsed" : ""}`}>
             <div className="panel-header">
-                <div>
+                <button className="quick-panel-title" type="button" onClick={onToggleCollapsed}>
                     <p className="eyebrow">Quick Tasks</p>
                     <h2>Workout builder</h2>
-                </div>
-
-                <div className="panel-header-actions">
-                    <button
-                        className="secondary-button compact-button panel-toggle menu-toggle-button"
-                        type="button"
-                        onClick={onToggleCollapsed}
-                    >
-                        {collapsed ? "Expand menu" : "Collapse menu"}
-                    </button>
-                </div>
+                </button>
             </div>
 
             {collapsed ? (
@@ -608,9 +598,6 @@ function DietTab({ onProteinShake, onMeal, logging }) {
             <section className="utility-card">
                 <p className="eyebrow">Diet</p>
                 <h3>One-tap logs</h3>
-                <p className="muted">
-                    These entries go straight into the same timeline and SQLite history.
-                </p>
                 <div className="diet-actions">
                     <button
                         className="primary-button compact-button"
@@ -626,9 +613,6 @@ function DietTab({ onProteinShake, onMeal, logging }) {
             <section className="utility-card">
                 <p className="eyebrow">Meal</p>
                 <h3>Log a meal</h3>
-                <p className="muted">
-                    Records the timestamp and whether the meal was high protein.
-                </p>
                 <div className="diet-actions">
                     <button
                         className="secondary-button compact-button"
