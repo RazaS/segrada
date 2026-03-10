@@ -67,6 +67,65 @@ function formatTimestamp(value) {
     }).format(parsed);
 }
 
+function getTorontoDayKey(value) {
+    if (!value) {
+        return "";
+    }
+
+    const parsed = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return String(value);
+    }
+
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: TORONTO_TIMEZONE,
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+    }).format(parsed);
+}
+
+function formatTimelineDayHeading(value) {
+    if (!value) {
+        return "Unknown day";
+    }
+
+    const parsed = value instanceof Date ? value : new Date(value);
+    if (Number.isNaN(parsed.getTime())) {
+        return String(value);
+    }
+
+    return new Intl.DateTimeFormat("en-CA", {
+        timeZone: TORONTO_TIMEZONE,
+        weekday: "long",
+        month: "long",
+        day: "numeric",
+        year: "numeric",
+    }).format(parsed);
+}
+
+function groupPostsByDay(posts) {
+    const groups = [];
+
+    posts.forEach((post) => {
+        const dayKey = getTorontoDayKey(post.created_at);
+        const previousGroup = groups[groups.length - 1];
+
+        if (previousGroup && previousGroup.key === dayKey) {
+            previousGroup.posts.push(post);
+            return;
+        }
+
+        groups.push({
+            key: dayKey,
+            label: formatTimelineDayHeading(post.created_at),
+            posts: [post],
+        });
+    });
+
+    return groups;
+}
+
 function formatMetric(value, suffix) {
     if (value === null || value === undefined) {
         return "—";
@@ -372,6 +431,33 @@ function TimelineItem({
     );
 }
 
+function TimelineDaySection({ group, expanded, onToggle, children }) {
+    const updateLabel = `${group.posts.length} ${
+        group.posts.length === 1 ? "update" : "updates"
+    }`;
+
+    return (
+        <section className={`timeline-day ${expanded ? "is-open" : ""}`}>
+            <button
+                className="timeline-day-toggle"
+                type="button"
+                aria-expanded={expanded}
+                onClick={onToggle}
+            >
+                <div>
+                    <p className="eyebrow">{updateLabel}</p>
+                    <h3>{group.label}</h3>
+                </div>
+                <div className="timeline-day-meta">
+                    <span>{expanded ? "Hide section" : "Show section"}</span>
+                </div>
+            </button>
+
+            {expanded ? <div className="timeline-day-content">{children}</div> : null}
+        </section>
+    );
+}
+
 function InfoPanel({
     user,
     weather,
@@ -504,6 +590,7 @@ function App() {
     const [loggingTask, setLoggingTask] = useState("");
     const [tasksCollapsed, setTasksCollapsed] = useState(false);
     const [infoCollapsed, setInfoCollapsed] = useState(false);
+    const [expandedDays, setExpandedDays] = useState({});
 
     const [editingId, setEditingId] = useState(null);
     const [editText, setEditText] = useState("");
@@ -543,6 +630,36 @@ function App() {
 
         return () => window.clearInterval(timer);
     }, [user]);
+
+    useEffect(() => {
+        if (posts.length === 0) {
+            setExpandedDays((current) =>
+                Object.keys(current).length === 0 ? current : {}
+            );
+            return;
+        }
+
+        const groupedPosts = groupPostsByDay(posts);
+        setExpandedDays((current) => {
+            const next = {};
+
+            groupedPosts.forEach((group, index) => {
+                const hasExistingValue = Object.prototype.hasOwnProperty.call(
+                    current,
+                    group.key
+                );
+                next[group.key] = hasExistingValue ? current[group.key] : index < 2;
+            });
+
+            const currentKeys = Object.keys(current);
+            const nextKeys = Object.keys(next);
+            const unchanged =
+                currentKeys.length === nextKeys.length &&
+                nextKeys.every((key) => current[key] === next[key]);
+
+            return unchanged ? current : next;
+        });
+    }, [posts]);
 
     async function loadSession() {
         try {
@@ -806,6 +923,19 @@ function App() {
     ]
         .filter(Boolean)
         .join(" ");
+    const postGroups = groupPostsByDay(posts);
+    const effectiveExpandedDays = {};
+    postGroups.forEach((group, index) => {
+        effectiveExpandedDays[group.key] = Object.prototype.hasOwnProperty.call(
+            expandedDays,
+            group.key
+        )
+            ? expandedDays[group.key]
+            : index < 2;
+    });
+    const allDaysExpanded =
+        postGroups.length > 0 &&
+        postGroups.every((group) => effectiveExpandedDays[group.key]);
 
     return (
         <div className={shellClassName}>
@@ -875,6 +1005,30 @@ function App() {
 
                 {actionError ? <div className="error-banner">{actionError}</div> : null}
 
+                {postGroups.length > 0 ? (
+                    <div className="timeline-toolbar">
+                        <p className="muted">
+                            Grouped into daily sections. Newest two days stay open by
+                            default.
+                        </p>
+                        <button
+                            className="secondary-button"
+                            type="button"
+                            onClick={() =>
+                                setExpandedDays(() => {
+                                    const next = {};
+                                    postGroups.forEach((group) => {
+                                        next[group.key] = !allDaysExpanded;
+                                    });
+                                    return next;
+                                })
+                            }
+                        >
+                            {allDaysExpanded ? "Collapse all" : "Expand all"}
+                        </button>
+                    </div>
+                ) : null}
+
                 <div className="timeline-list">
                     {loadingDashboard && posts.length === 0 ? (
                         <div className="empty-state">Loading posts…</div>
@@ -886,25 +1040,39 @@ function App() {
                         </div>
                     ) : null}
 
-                    {posts.map((post) => (
-                        <TimelineItem
-                            key={post.id}
-                            post={post}
-                            isEditing={editingId === post.id}
-                            editText={editText}
-                            editPhoto={editPhoto}
-                            editRemovePhoto={editRemovePhoto}
-                            editFileRef={editFileRef}
-                            savingEdit={savingEdit}
-                            deletingId={deletingId}
-                            onStartEdit={startEditing}
-                            onCancelEdit={cancelEditing}
-                            onEditTextChange={setEditText}
-                            onEditPhotoChange={setEditPhoto}
-                            onToggleRemovePhoto={setEditRemovePhoto}
-                            onSaveEdit={saveEdit}
-                            onDelete={handleDelete}
-                        />
+                    {postGroups.map((group) => (
+                        <TimelineDaySection
+                            key={group.key}
+                            group={group}
+                            expanded={Boolean(effectiveExpandedDays[group.key])}
+                            onToggle={() =>
+                                setExpandedDays((current) => ({
+                                    ...current,
+                                    [group.key]: !effectiveExpandedDays[group.key],
+                                }))
+                            }
+                        >
+                            {group.posts.map((post) => (
+                                <TimelineItem
+                                    key={post.id}
+                                    post={post}
+                                    isEditing={editingId === post.id}
+                                    editText={editText}
+                                    editPhoto={editPhoto}
+                                    editRemovePhoto={editRemovePhoto}
+                                    editFileRef={editFileRef}
+                                    savingEdit={savingEdit}
+                                    deletingId={deletingId}
+                                    onStartEdit={startEditing}
+                                    onCancelEdit={cancelEditing}
+                                    onEditTextChange={setEditText}
+                                    onEditPhotoChange={setEditPhoto}
+                                    onToggleRemovePhoto={setEditRemovePhoto}
+                                    onSaveEdit={saveEdit}
+                                    onDelete={handleDelete}
+                                />
+                            ))}
+                        </TimelineDaySection>
                     ))}
                 </div>
             </main>
