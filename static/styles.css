@@ -389,9 +389,10 @@ p {
 }
 
 .timeline-day {
+    width: 100%;
     border: 1px solid rgba(99, 76, 53, 0.12);
     border-radius: 20px;
-    background: rgba(255, 252, 246, 0.58);
+    background: var(--panel-strong);
     overflow: hidden;
 }
 
@@ -403,17 +404,13 @@ p {
     gap: 0.7rem;
     padding: 0.9rem 0.95rem;
     border: none;
-    background:
-        linear-gradient(180deg, rgba(255, 252, 246, 0.94), rgba(250, 241, 228, 0.8)),
-        rgba(255, 252, 246, 0.92);
+    background: var(--panel-strong);
     color: var(--ink);
     text-align: left;
 }
 
 .timeline-day-toggle:hover {
-    background:
-        linear-gradient(180deg, rgba(255, 252, 246, 0.98), rgba(246, 236, 221, 0.88)),
-        rgba(255, 252, 246, 0.95);
+    background: var(--panel-strong);
 }
 
 .timeline-day-toggle h3 {
