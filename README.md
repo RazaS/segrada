@@ -4,7 +4,6 @@ A small Flask + React workout logging app with persistent login, quick workout e
 
 ## Features
 
-- Login for `raza` / `password` with a long-lived session cookie
 - Segrada-style warm card UI with light and dark themes
 - Three-part layout:
   - left quick workout builder with collapsible body-part sections
