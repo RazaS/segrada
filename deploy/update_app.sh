@@ -3,7 +3,7 @@ set -euo pipefail
 
 APP_DIR="/opt/workout/app"
 VENV_DIR="/opt/workout/venv"
-BRANCH="${WORKOUT_BRANCH:-main}"
+BRANCH="${WORKOUT_BRANCH:-codex/workout-ledger}"
 
 cd "$APP_DIR"
 git fetch origin "$BRANCH"
