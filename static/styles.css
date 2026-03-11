@@ -469,6 +469,85 @@ p {
     white-space: pre-wrap;
 }
 
+.post-engagement {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+
+.reaction-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.45rem;
+}
+
+.reaction-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.45rem 0.65rem;
+    border: 1px solid rgba(99, 76, 53, 0.12);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.72);
+    color: var(--ink);
+    font-size: 0.82rem;
+    font-weight: 700;
+}
+
+.reaction-chip.active {
+    background: var(--accent-soft);
+    color: var(--accent-deep);
+    border-color: rgba(211, 111, 75, 0.18);
+}
+
+.reaction-emoji {
+    font-size: 0.96rem;
+    line-height: 1;
+}
+
+.comment-section {
+    display: flex;
+    flex-direction: column;
+    gap: 0.7rem;
+}
+
+.comment-list {
+    display: flex;
+    flex-direction: column;
+    gap: 0.55rem;
+}
+
+.comment-item {
+    padding: 0.65rem 0.75rem;
+    border: 1px solid rgba(99, 76, 53, 0.12);
+    border-radius: 16px;
+    background: rgba(255, 255, 255, 0.54);
+}
+
+.comment-item p {
+    margin-top: 0.2rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+
+.comment-meta {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    font-size: 0.8rem;
+}
+
+.comment-form {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.7rem;
+}
+
+.comment-field {
+    flex: 1 1 auto;
+}
+
 .post-image {
     width: 100%;
     max-height: 420px;
@@ -608,6 +687,7 @@ p {
     .card-actions,
     .panel-header,
     .post-topline,
+    .comment-form,
     .timeline-toolbar,
     .timeline-day-toggle {
         flex-direction: column;

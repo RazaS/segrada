@@ -184,6 +184,95 @@ class PetTimelineAppTests(unittest.TestCase):
         self.assertEqual(authenticated_image_response.status_code, 200)
         authenticated_image_response.close()
 
+    def test_reactions_and_comments_are_shared_and_toggle_per_user(self):
+        first_client = self.app.test_client()
+        second_client = self.app.test_client()
+        anonymous_client = self.app.test_client()
+
+        first_login = first_client.post(
+            "/api/login",
+            json={"username": "victoria", "password": "sashakitty"},
+        )
+        self.assertEqual(first_login.status_code, 200)
+
+        create_response = first_client.post(
+            "/api/posts",
+            data={"content": "Sasha is asleep on the chair."},
+            content_type="multipart/form-data",
+        )
+        self.assertEqual(create_response.status_code, 201)
+        post_id = create_response.get_json()["post"]["id"]
+
+        heart_response = first_client.post(
+            f"/api/posts/{post_id}/reactions",
+            json={"reaction": "heart"},
+        )
+        self.assertEqual(heart_response.status_code, 200)
+        heart_post = heart_response.get_json()["post"]
+        heart_reaction = next(
+            reaction for reaction in heart_post["reactions"] if reaction["id"] == "heart"
+        )
+        self.assertEqual(heart_reaction["count"], 1)
+        self.assertTrue(heart_reaction["reacted"])
+
+        second_login = second_client.post(
+            "/api/login",
+            json={"username": "raza", "password": "kojikitty"},
+        )
+        self.assertEqual(second_login.status_code, 200)
+
+        thumbs_up_response = second_client.post(
+            f"/api/posts/{post_id}/reactions",
+            json={"reaction": "thumbs_up"},
+        )
+        self.assertEqual(thumbs_up_response.status_code, 200)
+
+        comment_response = second_client.post(
+            f"/api/posts/{post_id}/comments",
+            json={"content": "That nap looks serious."},
+        )
+        self.assertEqual(comment_response.status_code, 201)
+        commented_post = comment_response.get_json()["post"]
+        self.assertEqual(len(commented_post["comments"]), 1)
+        self.assertEqual(commented_post["comments"][0]["author"], "raza")
+        self.assertEqual(commented_post["comments"][0]["content"], "That nap looks serious.")
+
+        shared_feed_response = first_client.get("/api/posts")
+        self.assertEqual(shared_feed_response.status_code, 200)
+        shared_post = shared_feed_response.get_json()["posts"][0]
+        self.assertEqual(len(shared_post["comments"]), 1)
+
+        heart_reaction = next(
+            reaction for reaction in shared_post["reactions"] if reaction["id"] == "heart"
+        )
+        thumbs_up_reaction = next(
+            reaction
+            for reaction in shared_post["reactions"]
+            if reaction["id"] == "thumbs_up"
+        )
+        self.assertEqual(heart_reaction["count"], 1)
+        self.assertTrue(heart_reaction["reacted"])
+        self.assertEqual(thumbs_up_reaction["count"], 1)
+        self.assertFalse(thumbs_up_reaction["reacted"])
+
+        toggle_off_response = first_client.post(
+            f"/api/posts/{post_id}/reactions",
+            json={"reaction": "heart"},
+        )
+        self.assertEqual(toggle_off_response.status_code, 200)
+        toggled_post = toggle_off_response.get_json()["post"]
+        toggled_heart = next(
+            reaction for reaction in toggled_post["reactions"] if reaction["id"] == "heart"
+        )
+        self.assertEqual(toggled_heart["count"], 0)
+        self.assertFalse(toggled_heart["reacted"])
+
+        anonymous_comment_response = anonymous_client.post(
+            f"/api/posts/{post_id}/comments",
+            json={"content": "Anonymous should fail."},
+        )
+        self.assertEqual(anonymous_comment_response.status_code, 401)
+
     def test_large_upload_returns_json_error(self):
         limited_app = create_app(
             {

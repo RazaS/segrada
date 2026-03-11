@@ -46,6 +46,13 @@ TASKS = [
 ]
 
 TASK_LABELS = {task["id"]: task["label"] for task in TASKS}
+REACTION_TYPES = [
+    {"id": "heart", "emoji": "❤️", "label": "Heart"},
+    {"id": "thumbs_up", "emoji": "👍", "label": "Thumbs up"},
+    {"id": "thumbs_down", "emoji": "👎", "label": "Thumbs down"},
+    {"id": "poop", "emoji": "💩", "label": "Poop"},
+]
+REACTION_TYPE_MAP = {reaction["id"]: reaction for reaction in REACTION_TYPES}
 
 WEATHER_CODE_LABELS = {
     0: "Clear sky",
@@ -149,6 +156,42 @@ def init_db() -> None:
         )
         """
     )
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS post_reactions (
+            post_id INTEGER NOT NULL,
+            author TEXT NOT NULL,
+            reaction_type TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY (post_id, author, reaction_type),
+            FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE
+        )
+        """
+    )
+    db.execute(
+        """
+        CREATE TABLE IF NOT EXISTS post_comments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            post_id INTEGER NOT NULL,
+            author TEXT NOT NULL,
+            content TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE
+        )
+        """
+    )
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_post_reactions_post_id
+        ON post_reactions (post_id)
+        """
+    )
+    db.execute(
+        """
+        CREATE INDEX IF NOT EXISTS idx_post_comments_post_id
+        ON post_comments (post_id, created_at, id)
+        """
+    )
     db.commit()
 
 
@@ -162,7 +205,101 @@ def login_required(view):
     return wrapped_view
 
 
-def serialize_post(row: sqlite3.Row, current_username: str | None) -> dict:
+def default_reaction_summary() -> list[dict]:
+    return [
+        {
+            "id": reaction["id"],
+            "emoji": reaction["emoji"],
+            "label": reaction["label"],
+            "count": 0,
+            "reacted": False,
+        }
+        for reaction in REACTION_TYPES
+    ]
+
+
+def reaction_snapshot(post_ids: list[int], current_username: str | None) -> dict[int, list[dict]]:
+    snapshots = {
+        post_id: {
+            reaction["id"]: {
+                "id": reaction["id"],
+                "emoji": reaction["emoji"],
+                "label": reaction["label"],
+                "count": 0,
+                "reacted": False,
+            }
+            for reaction in REACTION_TYPES
+        }
+        for post_id in post_ids
+    }
+    if not post_ids:
+        return {}
+
+    placeholders = ", ".join("?" for _ in post_ids)
+    rows = get_db().execute(
+        f"""
+        SELECT
+            post_id,
+            reaction_type,
+            COUNT(*) AS reaction_count,
+            MAX(CASE WHEN author = ? THEN 1 ELSE 0 END) AS reacted
+        FROM post_reactions
+        WHERE post_id IN ({placeholders})
+        GROUP BY post_id, reaction_type
+        """,
+        [current_username or "", *post_ids],
+    ).fetchall()
+
+    for row in rows:
+        entry = snapshots[row["post_id"]].get(row["reaction_type"])
+        if entry is None:
+            continue
+        entry["count"] = row["reaction_count"]
+        entry["reacted"] = bool(row["reacted"])
+
+    return {
+        post_id: list(reactions.values())
+        for post_id, reactions in snapshots.items()
+    }
+
+
+def comment_snapshot(post_ids: list[int]) -> dict[int, list[dict]]:
+    comments = {post_id: [] for post_id in post_ids}
+    if not post_ids:
+        return comments
+
+    placeholders = ", ".join("?" for _ in post_ids)
+    rows = get_db().execute(
+        f"""
+        SELECT id, post_id, author, content, created_at
+        FROM post_comments
+        WHERE post_id IN ({placeholders})
+        ORDER BY datetime(created_at) ASC, id ASC
+        """,
+        post_ids,
+    ).fetchall()
+
+    for row in rows:
+        comments[row["post_id"]].append(
+            {
+                "id": row["id"],
+                "author": row["author"],
+                "author_name": USERS[row["author"]]["display_name"],
+                "content": row["content"],
+                "created_at": row["created_at"],
+            }
+        )
+
+    return comments
+
+
+def serialize_post(
+    row: sqlite3.Row,
+    current_username: str | None,
+    *,
+    reactions: list[dict] | None = None,
+    comments: list[dict] | None = None,
+) -> dict:
     return {
         "id": row["id"],
         "author": row["author"],
@@ -175,7 +312,34 @@ def serialize_post(row: sqlite3.Row, current_username: str | None) -> dict:
         "created_at": row["created_at"],
         "updated_at": row["updated_at"],
         "can_edit": current_username == row["author"],
+        "reactions": reactions if reactions is not None else default_reaction_summary(),
+        "comments": comments if comments is not None else [],
     }
+
+
+def serialize_posts(rows: list[sqlite3.Row], current_username: str | None) -> list[dict]:
+    if not rows:
+        return []
+
+    post_ids = [row["id"] for row in rows]
+    reactions = reaction_snapshot(post_ids, current_username)
+    comments = comment_snapshot(post_ids)
+    return [
+        serialize_post(
+            row,
+            current_username,
+            reactions=reactions[row["id"]],
+            comments=comments[row["id"]],
+        )
+        for row in rows
+    ]
+
+
+def serialize_single_post(post_id: int, current_username: str | None) -> dict | None:
+    row = get_post(post_id)
+    if row is None:
+        return None
+    return serialize_posts([row], current_username)[0]
 
 
 def get_post(post_id: int) -> sqlite3.Row | None:
@@ -444,10 +608,7 @@ def create_app(test_config: dict | None = None) -> Flask:
         ).fetchall()
         return jsonify(
             {
-                "posts": [
-                    serialize_post(row, current_username)
-                    for row in rows
-                ]
+                "posts": serialize_posts(rows, current_username)
             }
         )
 
@@ -481,8 +642,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         )
         db.commit()
 
-        created = get_post(cursor.lastrowid)
-        return jsonify({"post": serialize_post(created, get_current_username())}), 201
+        created = serialize_single_post(cursor.lastrowid, get_current_username())
+        return jsonify({"post": created}), 201
 
     @app.route("/api/posts/<int:post_id>", methods=["PUT", "PATCH"])
     @login_required
@@ -529,8 +690,76 @@ def create_app(test_config: dict | None = None) -> Flask:
         )
         db.commit()
 
-        updated = get_post(post_id)
-        return jsonify({"post": serialize_post(updated, get_current_username())})
+        updated = serialize_single_post(post_id, get_current_username())
+        return jsonify({"post": updated})
+
+    @app.post("/api/posts/<int:post_id>/reactions")
+    @login_required
+    def toggle_post_reaction(post_id: int):
+        if get_post(post_id) is None:
+            return jsonify({"error": "Post not found."}), 404
+
+        payload = request.get_json(silent=True) or {}
+        reaction_type = str(payload.get("reaction", "")).strip()
+        if reaction_type not in REACTION_TYPE_MAP:
+            return jsonify({"error": "Unknown reaction."}), 400
+
+        username = get_current_username()
+        db = get_db()
+        existing = db.execute(
+            """
+            SELECT 1
+            FROM post_reactions
+            WHERE post_id = ? AND author = ? AND reaction_type = ?
+            """,
+            (post_id, username, reaction_type),
+        ).fetchone()
+
+        if existing:
+            db.execute(
+                """
+                DELETE FROM post_reactions
+                WHERE post_id = ? AND author = ? AND reaction_type = ?
+                """,
+                (post_id, username, reaction_type),
+            )
+        else:
+            db.execute(
+                """
+                INSERT INTO post_reactions (post_id, author, reaction_type, created_at)
+                VALUES (?, ?, ?, ?)
+                """,
+                (post_id, username, reaction_type, now_utc_iso()),
+            )
+        db.commit()
+
+        updated = serialize_single_post(post_id, username)
+        return jsonify({"post": updated})
+
+    @app.post("/api/posts/<int:post_id>/comments")
+    @login_required
+    def create_post_comment(post_id: int):
+        if get_post(post_id) is None:
+            return jsonify({"error": "Post not found."}), 404
+
+        payload = request.get_json(silent=True) or {}
+        content = str(payload.get("content", "")).strip()
+        if not content:
+            return jsonify({"error": "Write a comment before posting."}), 400
+
+        username = get_current_username()
+        db = get_db()
+        db.execute(
+            """
+            INSERT INTO post_comments (post_id, author, content, created_at)
+            VALUES (?, ?, ?, ?)
+            """,
+            (post_id, username, content, now_utc_iso()),
+        )
+        db.commit()
+
+        updated = serialize_single_post(post_id, username)
+        return jsonify({"post": updated}), 201
 
     @app.delete("/api/posts/<int:post_id>")
     @login_required
@@ -573,8 +802,8 @@ def create_app(test_config: dict | None = None) -> Flask:
         )
         db.commit()
 
-        created = get_post(cursor.lastrowid)
-        return jsonify({"post": serialize_post(created, get_current_username())}), 201
+        created = serialize_single_post(cursor.lastrowid, get_current_username())
+        return jsonify({"post": created}), 201
 
     @app.get("/api/tasks")
     @login_required

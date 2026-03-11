@@ -290,9 +290,17 @@ function TimelineItem({
     onToggleRemovePhoto,
     onSaveEdit,
     onDelete,
+    commentDraft,
+    commentBusy,
+    reactionBusyKey,
+    onCommentDraftChange,
+    onSubmitComment,
+    onToggleReaction,
 }) {
     const isTask = post.post_type === "task";
     const hasBeenEdited = post.updated_at !== post.created_at;
+    const reactions = post.reactions || [];
+    const comments = post.comments || [];
 
     return (
         <article className={`post-card ${isTask ? "task-post" : ""}`}>
@@ -404,6 +412,81 @@ function TimelineItem({
                                 alt="Pet update"
                             />
                         ) : null}
+                    </div>
+
+                    <div className="post-engagement">
+                        <div className="reaction-row">
+                            {reactions.map((reaction) => {
+                                const busyKey = `${post.id}:${reaction.id}`;
+                                return (
+                                    <button
+                                        key={reaction.id}
+                                        className={`reaction-chip ${
+                                            reaction.reacted ? "active" : ""
+                                        }`}
+                                        type="button"
+                                        title={reaction.label}
+                                        disabled={reactionBusyKey === busyKey}
+                                        onClick={() =>
+                                            onToggleReaction(post.id, reaction.id)
+                                        }
+                                    >
+                                        <span className="reaction-emoji">
+                                            {reaction.emoji}
+                                        </span>
+                                        {reaction.count > 0 ? (
+                                            <span>{reaction.count}</span>
+                                        ) : null}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <div className="comment-section">
+                            {comments.length > 0 ? (
+                                <div className="comment-list">
+                                    {comments.map((comment) => (
+                                        <div className="comment-item" key={comment.id}>
+                                            <div className="comment-meta">
+                                                <strong>{comment.author_name}</strong>
+                                                <span className="muted">
+                                                    {formatTimestamp(comment.created_at)}
+                                                </span>
+                                            </div>
+                                            <p>{comment.content}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : null}
+
+                            <form
+                                className="comment-form"
+                                onSubmit={(event) => {
+                                    event.preventDefault();
+                                    onSubmitComment(post.id);
+                                }}
+                            >
+                                <label className="field compact comment-field">
+                                    <span>Comment</span>
+                                    <textarea
+                                        rows="2"
+                                        placeholder="Add a comment"
+                                        value={commentDraft}
+                                        onChange={(event) =>
+                                            onCommentDraftChange(event.target.value)
+                                        }
+                                    />
+                                </label>
+
+                                <button
+                                    className="secondary-button"
+                                    type="submit"
+                                    disabled={commentBusy}
+                                >
+                                    {commentBusy ? "Posting..." : "Comment"}
+                                </button>
+                            </form>
+                        </div>
                     </div>
 
                     {post.can_edit ? (
@@ -591,6 +674,9 @@ function App() {
     const [tasksCollapsed, setTasksCollapsed] = useState(false);
     const [infoCollapsed, setInfoCollapsed] = useState(false);
     const [expandedDays, setExpandedDays] = useState({});
+    const [commentDrafts, setCommentDrafts] = useState({});
+    const [commentingId, setCommentingId] = useState(null);
+    const [reactionBusyKey, setReactionBusyKey] = useState("");
 
     const [editingId, setEditingId] = useState(null);
     const [editText, setEditText] = useState("");
@@ -748,6 +834,9 @@ function App() {
             setEditingId(null);
             setComposerText("");
             setComposerPhoto(null);
+            setCommentDrafts({});
+            setCommentingId(null);
+            setReactionBusyKey("");
             if (composerFileRef.current) {
                 composerFileRef.current.value = "";
             }
@@ -821,6 +910,65 @@ function App() {
             handleApiError(error);
         } finally {
             setLoggingTask("");
+        }
+    }
+
+    async function handleToggleReaction(postId, reactionId) {
+        const busyKey = `${postId}:${reactionId}`;
+        setReactionBusyKey(busyKey);
+        setActionError("");
+
+        try {
+            const payload = await apiFetch(`/api/posts/${postId}/reactions`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ reaction: reactionId }),
+            });
+            setPosts((current) =>
+                current.map((entry) =>
+                    entry.id === postId ? payload.post : entry
+                )
+            );
+        } catch (error) {
+            handleApiError(error);
+        } finally {
+            setReactionBusyKey("");
+        }
+    }
+
+    async function handleSubmitComment(postId) {
+        const content = (commentDrafts[postId] || "").trim();
+        if (!content) {
+            setActionError("Write a comment before posting.");
+            return;
+        }
+
+        setCommentingId(postId);
+        setActionError("");
+
+        try {
+            const payload = await apiFetch(`/api/posts/${postId}/comments`, {
+                method: "POST",
+                headers: {
+                    "Content-Type": "application/json",
+                },
+                body: JSON.stringify({ content }),
+            });
+            setPosts((current) =>
+                current.map((entry) =>
+                    entry.id === postId ? payload.post : entry
+                )
+            );
+            setCommentDrafts((current) => ({
+                ...current,
+                [postId]: "",
+            }));
+        } catch (error) {
+            handleApiError(error);
+        } finally {
+            setCommentingId(null);
         }
     }
 
@@ -1070,6 +1218,17 @@ function App() {
                                     onToggleRemovePhoto={setEditRemovePhoto}
                                     onSaveEdit={saveEdit}
                                     onDelete={handleDelete}
+                                    commentDraft={commentDrafts[post.id] || ""}
+                                    commentBusy={commentingId === post.id}
+                                    reactionBusyKey={reactionBusyKey}
+                                    onCommentDraftChange={(value) =>
+                                        setCommentDrafts((current) => ({
+                                            ...current,
+                                            [post.id]: value,
+                                        }))
+                                    }
+                                    onSubmitComment={handleSubmitComment}
+                                    onToggleReaction={handleToggleReaction}
                                 />
                             ))}
                         </TimelineDaySection>
