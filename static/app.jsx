@@ -1256,11 +1256,11 @@ function App() {
                             type="button"
                             onClick={() =>
                                 setVisibleDayCount((current) =>
-                                    Math.min(postGroups.length, current + 3)
+                                    Math.min(postGroups.length, current + 5)
                                 )
                             }
                         >
-                            Load older days
+                            Load 5 older days
                         </button>
                     ) : null}
                 </div>
