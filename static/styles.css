@@ -83,7 +83,10 @@ p {
     grid-template-columns: 300px minmax(0, 1fr) 300px;
     gap: 1rem;
     min-height: 100vh;
+    max-width: 1660px;
+    margin: 0 auto;
     padding: 1rem;
+    align-items: start;
 }
 
 .app-shell.left-collapsed {
@@ -126,8 +129,11 @@ p {
     display: flex;
     flex-direction: column;
     gap: 0.85rem;
-    width: min(100%, 860px);
+    width: 100%;
+    max-width: 980px;
     justify-self: center;
+    max-height: none;
+    overflow: visible;
 }
 
 .panel-body {
@@ -181,6 +187,11 @@ p {
     min-height: 0;
     overflow-y: auto;
     padding-right: 0.2rem;
+}
+
+.center-panel .timeline-list {
+    overflow: visible;
+    padding-right: 0;
 }
 
 .info-stack {
@@ -386,6 +397,11 @@ p {
     justify-content: space-between;
     gap: 0.7rem;
     padding: 0 0.1rem;
+}
+
+.load-more-button {
+    align-self: center;
+    margin-top: 0.25rem;
 }
 
 .timeline-day {

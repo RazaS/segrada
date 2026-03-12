@@ -674,6 +674,7 @@ function App() {
     const [tasksCollapsed, setTasksCollapsed] = useState(false);
     const [infoCollapsed, setInfoCollapsed] = useState(false);
     const [expandedDays, setExpandedDays] = useState({});
+    const [visibleDayCount, setVisibleDayCount] = useState(3);
     const [commentDrafts, setCommentDrafts] = useState({});
     const [commentingId, setCommentingId] = useState(null);
     const [reactionBusyKey, setReactionBusyKey] = useState("");
@@ -744,6 +745,19 @@ function App() {
                 nextKeys.every((key) => current[key] === next[key]);
 
             return unchanged ? current : next;
+        });
+    }, [posts]);
+
+    useEffect(() => {
+        const totalDayCount = groupPostsByDay(posts).length;
+        if (totalDayCount === 0) {
+            setVisibleDayCount(3);
+            return;
+        }
+
+        setVisibleDayCount((current) => {
+            const next = Math.min(totalDayCount, Math.max(3, current));
+            return current === next ? current : next;
         });
     }, [posts]);
 
@@ -1081,9 +1095,11 @@ function App() {
             ? expandedDays[group.key]
             : index < 2;
     });
+    const visibleGroups = postGroups.slice(0, visibleDayCount);
+    const hasMoreDays = visibleDayCount < postGroups.length;
     const allDaysExpanded =
-        postGroups.length > 0 &&
-        postGroups.every((group) => effectiveExpandedDays[group.key]);
+        visibleGroups.length > 0 &&
+        visibleGroups.every((group) => effectiveExpandedDays[group.key]);
 
     return (
         <div className={shellClassName}>
@@ -1156,7 +1172,7 @@ function App() {
                 {postGroups.length > 0 ? (
                     <div className="timeline-toolbar">
                         <p className="muted">
-                            Grouped into daily sections. Newest two days stay open by
+                            Newest three days load first. Newest two stay open by
                             default.
                         </p>
                         <button
@@ -1165,7 +1181,7 @@ function App() {
                             onClick={() =>
                                 setExpandedDays(() => {
                                     const next = {};
-                                    postGroups.forEach((group) => {
+                                    visibleGroups.forEach((group) => {
                                         next[group.key] = !allDaysExpanded;
                                     });
                                     return next;
@@ -1188,7 +1204,7 @@ function App() {
                         </div>
                     ) : null}
 
-                    {postGroups.map((group) => (
+                    {visibleGroups.map((group) => (
                         <TimelineDaySection
                             key={group.key}
                             group={group}
@@ -1233,6 +1249,20 @@ function App() {
                             ))}
                         </TimelineDaySection>
                     ))}
+
+                    {hasMoreDays ? (
+                        <button
+                            className="secondary-button load-more-button"
+                            type="button"
+                            onClick={() =>
+                                setVisibleDayCount((current) =>
+                                    Math.min(postGroups.length, current + 3)
+                                )
+                            }
+                        >
+                            Load older days
+                        </button>
+                    ) : null}
                 </div>
             </main>
 
