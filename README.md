@@ -4,9 +4,7 @@ A small Flask + React app for logging pet updates in a shared household timeline
 
 ## Features
 
-- Login screen with the two requested users:
-  - `victoria` / `sashakitty`
-  - `raza` / `kojikitty`
+- Login screen with the two requested users
 - Three-panel layout:
   - left: quick task logging for feed, litter clean, and dog walk
   - middle: timeline with text/photo posts
